@@ -1,0 +1,17 @@
+#!/bin/bash
+
+echo "Running cargo fmt check..."
+cargo fmt --all -- --check
+if [ $? -ne 0 ]; then
+    echo "Formatting check failed. Please run 'cargo fmt' to fix formatting issues."
+    exit 1
+fi
+
+echo "Running cargo clippy..."
+cargo clippy -- -D warnings
+if [ $? -ne 0 ]; then
+    echo "Clippy check failed. Please fix the issues above."
+    exit 1
+fi
+
+exit 0
