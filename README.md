@@ -21,10 +21,13 @@ Ein Midnight Commander-inspiriertes Terminal User Interface (TUI) für S3-Dateiv
 ### 📂 Dateiverwaltung
 - 🗂️ **S3 Browser** - Navigation durch S3 Buckets und Objekte
 - 💻 **Local Filesystem** - Lokales Dateisystem durchsuchen
-- 👁️ **File Preview** - Vorschau für S3 und lokale Dateien (max 1MB)
+- 👁️ **File Preview** - Vorschau für S3 und lokale Dateien (mit TAB-zu-Space-Konvertierung)
 - ⬇️ **Download** - S3 → Local mit Pfad-Eingabe
 - ⬆️ **Upload** - Local → S3 mit Ziel-Pfad-Eingabe
 - 📁 **S3 Folder Creation** - Erstellen von S3 "Ordnern" (Prefix-Marker)
+- ✏️ **Rename** - Umbenennen von Dateien und Ordnern (S3/Local)
+- 🔍 **Filter** - Filterung nach Namen in allen Listen
+- 📊 **Sort** - Sortierung nach Name, Size oder Date (auf-/absteigend)
 - 🗑️ **Delete** - Löschen von S3-Objekten und lokalen Dateien
 - 🔙 **Back Navigation** - ".." Einträge für intuitive Navigation
 
@@ -96,7 +99,7 @@ Die Anwendung startet mit zwei Panels:
 4. Nach erfolgreicher Ausführung erscheint die **BucketList**
 
 **Setup-Script konfigurieren:**
-- Drücke **F4** oder **P** auf einem Profil
+- Drücke **F3** auf einem Profil (Edit)
 - Gib den Script-Pfad oder Befehl ein, z.B.:
   ```bash
   aws-vault exec myprofile -- true
@@ -107,7 +110,7 @@ Die Anwendung startet mit zwei Panels:
 ### 4. Bucket Management
 
 **Neue Bucket-Konfiguration erstellen:**
-- Im **BucketList**, drücke **F2** oder **B**
+- Im **BucketList**, drücke **F7** (Create)
 - Eingaben:
   - **Bucket Name**
   - **Region** (z.B. eu-west-1)
@@ -115,46 +118,48 @@ Die Anwendung startet mit zwei Panels:
   - **Role Chain** (optional, mehrere Roles möglich)
 
 **Bucket-Konfiguration bearbeiten:**
-- Im **BucketList**, drücke **F4** oder **E** auf einem Bucket
-- Zum Löschen: **D** auf einem Bucket
+- Im **BucketList**, drücke **F3** (Edit) auf einem Bucket
+- Zum Löschen: **F8** (Delete) auf einem Bucket
 
 ### 5. S3 und Lokales Dateisystem
 
 **S3 Browser:**
 - **Enter** auf Bucket → S3-Objekte werden geladen
-- **F3/V** - Datei-Vorschau (max 1MB)
-- **F5/C** - Download zu anderem Panel
-- **F7/M** - Neuen S3-Ordner erstellen
-- **F8/Del** - Objekt löschen
+- **F2** - Sortierung ändern
+- **F3** - Datei-Vorschau
+- **F4** - Filter nach Namen
+- **F5** - Download zu anderem Panel
+- **F6** - Datei/Ordner umbenennen
+- **F7** - Neuen S3-Ordner erstellen
+- **F8** - Objekt löschen
 - **..** - Zurück zur Bucket-Liste
 
 **Local Filesystem:**
 - Navigation wie S3 Browser
-- **F3/V** - Lokale Datei anzeigen
-- **F5/C** - Upload zu S3 Panel
-- **F8/Del** - Lokale Datei löschen
+- **F2** - Sortierung ändern
+- **F3** - Lokale Datei anzeigen
+- **F4** - Filter nach Namen
+- **F5** - Upload zu S3 Panel
+- **F6** - Datei/Ordner umbenennen
+- **F8** - Lokale Datei löschen
 - **..** - Zum Parent-Verzeichnis
 
 ## Keyboard Shortcuts
 
 ### MC-Style Function Keys (Kontextabhängig)
 
-```
-01Help  02Create  03View  04Edit  05Copy  06Move  07Mkdir  08Delete  09Menu  10Exit
-```
-
-| Taste | Funktion | Kontext | Alternative |
-|-------|----------|---------|-------------|
-| **F1** | Help | Alle | `?` |
-| **F2** | Create | BucketList | `B` |
-| **F3** | View | S3/Local | `V` |
-| **F4** | Edit | ProfileList/BucketList | `P`, `E` |
-| **F5** | Copy | S3/Local | `C` |
-| **F6** | Move | - | - |
-| **F7** | Mkdir | S3Browser | `M` |
-| **F8** | Delete | S3/Local/BucketList | `Del`, `D` |
-| **F9** | Menu | - | - |
-| **F10** | Exit | Alle | `q` |
+| Taste | Funktion | Kontext | Beschreibung |
+|-------|----------|---------|--------------|
+| **F1** | Help | Alle | Zeigt Hilfe an |
+| **F2** | Sort | Alle | Sortierung (Name, Size, Date) |
+| **F3** | View/Edit | Alle | Edit (Profile/Bucket) / View (S3/Filesystem) |
+| **F4** | Filter | Alle | Filtert Items nach Namen |
+| **F5** | Copy | S3/Filesystem | Kopiert zwischen Panels |
+| **F6** | Rename | S3/Filesystem | Benennt Datei/Ordner um |
+| **F7** | Create/Mkdir | BucketList/S3/Filesystem | Erstellt Bucket-Config oder Ordner |
+| **F8** | Delete | Alle | Löscht ausgewähltes Item |
+| **F9** | Advanced | Alle | Schaltet Advanced Mode um |
+| **q/Esc** | Quit | Alle | Beendet Anwendung oder schließt Dialog |
 
 ### Navigation
 - **Tab** - Zwischen Panels wechseln

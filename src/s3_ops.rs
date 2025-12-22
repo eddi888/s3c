@@ -199,7 +199,7 @@ impl S3Manager {
         Ok(())
     }
 
-    #[allow(dead_code)]
+    /// Copy object within the same bucket (server-side, no streaming)
     pub async fn copy_object(&self, source_key: &str, dest_key: &str) -> Result<()> {
         let bucket = &self.bucket;
         let copy_source = format!("{bucket}/{source_key}");
@@ -212,6 +212,55 @@ impl S3Manager {
             .send()
             .await
             .context("Failed to copy object")?;
+
+        Ok(())
+    }
+
+    /// Copy object from another S3 bucket (server-side, no streaming)
+    pub async fn copy_from_bucket(
+        &self,
+        source_bucket: &str,
+        source_key: &str,
+        dest_key: &str,
+    ) -> Result<()> {
+        let copy_source = format!("{source_bucket}/{source_key}");
+
+        self.client
+            .copy_object()
+            .bucket(&self.bucket)
+            .copy_source(&copy_source)
+            .key(dest_key)
+            .send()
+            .await
+            .context("Failed to copy from another bucket")?;
+
+        Ok(())
+    }
+
+    /// Stream-based copy from another S3Manager (for cross-account/region)
+    pub async fn stream_copy_from(
+        &self,
+        source_manager: &S3Manager,
+        source_key: &str,
+        dest_key: &str,
+    ) -> Result<()> {
+        let resp = source_manager
+            .client
+            .get_object()
+            .bucket(&source_manager.bucket)
+            .key(source_key)
+            .send()
+            .await
+            .context("Failed to get source object")?;
+
+        self.client
+            .put_object()
+            .bucket(&self.bucket)
+            .key(dest_key)
+            .body(resp.body)
+            .send()
+            .await
+            .context("Failed to upload to destination")?;
 
         Ok(())
     }
@@ -240,6 +289,37 @@ impl S3Manager {
         self.move_object(old_key, new_key).await
     }
 
+    pub async fn get_object_size(&self, key: &str) -> Result<i64> {
+        let resp = self
+            .client
+            .head_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .context("Failed to get object metadata")?;
+
+        Ok(resp.content_length().unwrap_or(0))
+    }
+
+    pub async fn get_object_range(&self, key: &str, start: i64, end: i64) -> Result<Vec<u8>> {
+        let range = format!("bytes={start}-{end}");
+
+        let resp = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .range(range)
+            .send()
+            .await
+            .context("Failed to get object range")?;
+
+        let bytes = resp.body.collect().await?.into_bytes();
+        Ok(bytes.to_vec())
+    }
+
+    #[allow(dead_code)]
     pub async fn get_object_content(&self, key: &str, max_size: usize) -> Result<String> {
         let resp = self
             .client

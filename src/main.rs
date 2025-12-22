@@ -9,6 +9,7 @@ use std::io;
 
 mod app;
 mod config;
+mod list_model;
 mod s3_ops;
 mod ui;
 
@@ -74,8 +75,12 @@ async fn run_app<B: ratatui::backend::Backend>(
                             app.load_s3_bucket_no_script(profile, bucket).await?;
                         } else {
                             // Just show bucket list for profile
+                            let buckets = app.config_manager.get_buckets_for_profile(&profile);
                             let panel = app.get_active_panel();
                             panel.panel_type = crate::app::PanelType::BucketList { profile };
+                            panel
+                                .list_model
+                                .set_items(crate::app::buckets_to_items(buckets));
                             panel.selected_index = 0;
                         }
                     }
@@ -97,6 +102,16 @@ async fn run_app<B: ratatui::backend::Backend>(
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
+                // Close error/success overlays with any key
+                if !app.error_message.is_empty() {
+                    app.error_message.clear();
+                    continue;
+                }
+                if !app.success_message.is_empty() {
+                    app.success_message.clear();
+                    continue;
+                }
+
                 match app.screen {
                     Screen::DualPanel => {
                         handle_dual_panel_input(app, key.code).await?;
@@ -107,14 +122,19 @@ async fn run_app<B: ratatui::backend::Backend>(
                     Screen::ProfileConfigForm => {
                         handle_profile_config_form_input(app, key.code)?;
                     }
+                    Screen::SortDialog => {
+                        handle_sort_dialog_input(app, key.code)?;
+                    }
+                    Screen::DeleteConfirmation => {
+                        handle_delete_confirmation_input(app, key.code).await?;
+                    }
                     Screen::FilePreview => {
-                        // Any key exits preview
-                        app.go_back();
+                        handle_file_preview_input(app, key.code).await?;
                     }
                     Screen::Input => {
                         handle_input_mode(app, key.code, key.modifiers).await?;
                     }
-                    Screen::Error | Screen::Success | Screen::Help => {
+                    Screen::Help => {
                         app.go_back();
                     }
                 }
@@ -132,60 +152,128 @@ async fn handle_dual_panel_input(app: &mut App, key: KeyCode) -> Result<()> {
             app.prev_screen = Some(Screen::DualPanel);
             app.screen = Screen::Help;
         }
+        KeyCode::F(12) => {
+            // F12: Toggle between ProfileList and LocalFilesystem
+            app.toggle_local_filesystem();
+        }
         KeyCode::Up => app.navigate_up(),
         KeyCode::Down => app.navigate_down(),
         KeyCode::PageUp => app.navigate_page_up(),
         KeyCode::PageDown => app.navigate_page_down(),
+        KeyCode::Home => app.navigate_home(),
+        KeyCode::End => app.navigate_end(),
         KeyCode::Tab => app.switch_panel(),
         KeyCode::Enter => app.enter_selected().await?,
-        KeyCode::Char('f') | KeyCode::Char('F') => app.toggle_local_filesystem(),
-        KeyCode::Char('b') | KeyCode::Char('B') | KeyCode::F(2) => {
-            // F2 Create: Bucket config in BucketList
-            if matches!(
-                app.get_active_panel().panel_type,
-                crate::app::PanelType::BucketList { .. }
-            ) {
-                app.show_config_form();
+        KeyCode::F(2) => {
+            // F2: Show Sort Dialog
+            app.show_sort_dialog();
+        }
+        KeyCode::F(4) => {
+            // F4: Filter
+            app.prompt_filter();
+        }
+        KeyCode::F(7) => {
+            // F7: Context-dependent - Create Bucket in BucketList, Mkdir in S3/Filesystem
+            match &app.get_active_panel().panel_type {
+                crate::app::PanelType::BucketList { .. } => {
+                    app.show_config_form();
+                }
+                crate::app::PanelType::S3Browser { .. }
+                | crate::app::PanelType::LocalFilesystem { .. } => {
+                    app.prompt_create_folder();
+                }
+                _ => {}
             }
         }
-        KeyCode::Char('p')
-        | KeyCode::Char('P')
-        | KeyCode::Char('e')
-        | KeyCode::Char('E')
-        | KeyCode::F(4) => {
-            // F4 Edit: Profile config in ProfileList, Bucket config in BucketList
-            if let crate::app::PanelType::ProfileList = app.get_active_panel().panel_type {
-                app.show_profile_config_form();
-            } else if matches!(
-                app.get_active_panel().panel_type,
-                crate::app::PanelType::BucketList { .. }
-            ) {
-                app.edit_bucket_config();
+        KeyCode::F(3) => {
+            // F3: Context-dependent - Edit for Profile/Bucket, View for S3/Filesystem
+            match &app.get_active_panel().panel_type {
+                crate::app::PanelType::ProfileList => {
+                    app.show_profile_config_form();
+                }
+                crate::app::PanelType::BucketList { .. } => {
+                    app.edit_bucket_config();
+                }
+                crate::app::PanelType::S3Browser { .. }
+                | crate::app::PanelType::LocalFilesystem { .. } => {
+                    app.view_file().await?;
+                }
             }
         }
-        KeyCode::Char('d') | KeyCode::Char('D') => {
-            // Delete bucket - only in BucketList
-            if matches!(
-                app.get_active_panel().panel_type,
-                crate::app::PanelType::BucketList { .. }
-            ) {
-                app.delete_bucket_config()?;
-            }
-        }
-        KeyCode::Char('v') | KeyCode::Char('V') | KeyCode::F(3) => app.view_file().await?,
-        KeyCode::Char('c') | KeyCode::Char('C') | KeyCode::F(5) => {
+        KeyCode::F(5) => {
+            // F5: Copy File
             app.copy_to_other_panel().await?
         }
-        KeyCode::Char('m') | KeyCode::Char('M') | KeyCode::F(7) => {
-            // F7 Create Folder - only in S3 Browser
+        KeyCode::F(6) => {
+            // F6: Rename - in S3 Browser or Local Filesystem
             if matches!(
                 app.get_active_panel().panel_type,
                 crate::app::PanelType::S3Browser { .. }
+                    | crate::app::PanelType::LocalFilesystem { .. }
             ) {
-                app.prompt_create_folder();
+                app.prompt_rename();
             }
         }
         KeyCode::Delete | KeyCode::F(8) => app.delete_file().await?,
+        KeyCode::F(9) => {
+            // F9: Toggle Advanced Mode
+            app.advanced_mode = !app.advanced_mode;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+fn handle_sort_dialog_input(app: &mut App, key: KeyCode) -> Result<()> {
+    match key {
+        KeyCode::Up => {
+            if app.sort_dialog_selected > 0 {
+                app.sort_dialog_selected -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.sort_dialog_selected < 5 {
+                app.sort_dialog_selected += 1;
+            }
+        }
+        KeyCode::Enter => {
+            app.apply_sort_selection();
+            app.go_back();
+        }
+        KeyCode::Esc => {
+            app.go_back();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_delete_confirmation_input(app: &mut App, key: KeyCode) -> Result<()> {
+    match key {
+        KeyCode::Left => {
+            if app.delete_confirmation_button > 0 {
+                app.delete_confirmation_button -= 1;
+            }
+        }
+        KeyCode::Right => {
+            if app.delete_confirmation_button < 1 {
+                app.delete_confirmation_button += 1;
+            }
+        }
+        KeyCode::Tab => {
+            app.delete_confirmation_button = (app.delete_confirmation_button + 1) % 2;
+        }
+        KeyCode::Enter => {
+            if app.delete_confirmation_button == 0 {
+                // DELETE button selected
+                app.confirm_delete().await?;
+            }
+            // Both DELETE and CANCEL close the dialog
+            app.go_back();
+        }
+        KeyCode::Esc => {
+            app.go_back();
+        }
         _ => {}
     }
     Ok(())
@@ -196,11 +284,60 @@ fn handle_profile_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
         KeyCode::Up => {
             if app.profile_form_field > 0 {
                 app.profile_form_field -= 1;
+                // Update cursor position for new field
+                app.profile_form_cursor = match app.profile_form_field {
+                    0 => app.profile_form_description.len(),
+                    1 => app.profile_form_setup_script.len(),
+                    _ => 0,
+                };
             }
         }
         KeyCode::Down => {
             if app.profile_form_field < 3 {
                 app.profile_form_field += 1;
+                // Update cursor position for new field
+                app.profile_form_cursor = match app.profile_form_field {
+                    0 => app.profile_form_description.len(),
+                    1 => app.profile_form_setup_script.len(),
+                    _ => 0,
+                };
+            }
+        }
+        KeyCode::Left => {
+            if app.profile_form_cursor > 0 {
+                app.profile_form_cursor -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let max_cursor = match app.profile_form_field {
+                0 => app.profile_form_description.len(),
+                1 => app.profile_form_setup_script.len(),
+                _ => 0,
+            };
+            if app.profile_form_cursor < max_cursor {
+                app.profile_form_cursor += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.profile_form_cursor = 0;
+        }
+        KeyCode::End => {
+            app.profile_form_cursor = match app.profile_form_field {
+                0 => app.profile_form_description.len(),
+                1 => app.profile_form_setup_script.len(),
+                _ => 0,
+            };
+        }
+        KeyCode::Delete => {
+            if app.profile_form_field == 0
+                && app.profile_form_cursor < app.profile_form_description.len()
+            {
+                app.profile_form_description.remove(app.profile_form_cursor);
+            } else if app.profile_form_field == 1
+                && app.profile_form_cursor < app.profile_form_setup_script.len()
+            {
+                app.profile_form_setup_script
+                    .remove(app.profile_form_cursor);
             }
         }
         KeyCode::Enter => {
@@ -214,18 +351,25 @@ fn handle_profile_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
         }
         KeyCode::Char(c) => {
             if app.profile_form_field == 0 {
-                // Description
-                app.profile_form_description.push(c);
+                app.profile_form_description
+                    .insert(app.profile_form_cursor, c);
+                app.profile_form_cursor += 1;
             } else if app.profile_form_field == 1 {
-                // Setup Script
-                app.profile_form_setup_script.push(c);
+                app.profile_form_setup_script
+                    .insert(app.profile_form_cursor, c);
+                app.profile_form_cursor += 1;
             }
         }
         KeyCode::Backspace => {
-            if app.profile_form_field == 0 {
-                app.profile_form_description.pop();
-            } else if app.profile_form_field == 1 {
-                app.profile_form_setup_script.pop();
+            if app.profile_form_cursor > 0 {
+                if app.profile_form_field == 0 {
+                    app.profile_form_cursor -= 1;
+                    app.profile_form_description.remove(app.profile_form_cursor);
+                } else if app.profile_form_field == 1 {
+                    app.profile_form_cursor -= 1;
+                    app.profile_form_setup_script
+                        .remove(app.profile_form_cursor);
+                }
             }
         }
         KeyCode::Esc => app.go_back(),
@@ -241,11 +385,102 @@ fn handle_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
         KeyCode::Up => {
             if app.config_form_field > 0 {
                 app.config_form_field -= 1;
+                // Update cursor position for new field
+                app.config_form_cursor = match app.config_form_field {
+                    0 => app.config_form_bucket.len(),
+                    1 => app.config_form_description.len(),
+                    2 => app.config_form_region.len(),
+                    _ if app.config_form_field <= app.config_form_roles.len() + 2 => {
+                        let role_idx = app.config_form_field - 3;
+                        app.config_form_roles
+                            .get(role_idx)
+                            .map(|r| r.len())
+                            .unwrap_or(0)
+                    }
+                    _ => 0,
+                };
             }
         }
         KeyCode::Down => {
             if app.config_form_field < max_field {
                 app.config_form_field += 1;
+                // Update cursor position for new field
+                app.config_form_cursor = match app.config_form_field {
+                    0 => app.config_form_bucket.len(),
+                    1 => app.config_form_description.len(),
+                    2 => app.config_form_region.len(),
+                    _ if app.config_form_field <= app.config_form_roles.len() + 2 => {
+                        let role_idx = app.config_form_field - 3;
+                        app.config_form_roles
+                            .get(role_idx)
+                            .map(|r| r.len())
+                            .unwrap_or(0)
+                    }
+                    _ => 0,
+                };
+            }
+        }
+        KeyCode::Left => {
+            if app.config_form_cursor > 0 {
+                app.config_form_cursor -= 1;
+            }
+        }
+        KeyCode::Right => {
+            let max_cursor = match app.config_form_field {
+                0 => app.config_form_bucket.len(),
+                1 => app.config_form_description.len(),
+                2 => app.config_form_region.len(),
+                _ if app.config_form_field <= app.config_form_roles.len() + 2 => {
+                    let role_idx = app.config_form_field - 3;
+                    app.config_form_roles
+                        .get(role_idx)
+                        .map(|r| r.len())
+                        .unwrap_or(0)
+                }
+                _ => 0,
+            };
+            if app.config_form_cursor < max_cursor {
+                app.config_form_cursor += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.config_form_cursor = 0;
+        }
+        KeyCode::End => {
+            app.config_form_cursor = match app.config_form_field {
+                0 => app.config_form_bucket.len(),
+                1 => app.config_form_description.len(),
+                2 => app.config_form_region.len(),
+                _ if app.config_form_field <= app.config_form_roles.len() + 2 => {
+                    let role_idx = app.config_form_field - 3;
+                    app.config_form_roles
+                        .get(role_idx)
+                        .map(|r| r.len())
+                        .unwrap_or(0)
+                }
+                _ => 0,
+            };
+        }
+        KeyCode::Delete => {
+            if app.config_form_field == 0 && app.config_form_cursor < app.config_form_bucket.len() {
+                app.config_form_bucket.remove(app.config_form_cursor);
+            } else if app.config_form_field == 1
+                && app.config_form_cursor < app.config_form_description.len()
+            {
+                app.config_form_description.remove(app.config_form_cursor);
+            } else if app.config_form_field == 2
+                && app.config_form_cursor < app.config_form_region.len()
+            {
+                app.config_form_region.remove(app.config_form_cursor);
+            } else if app.config_form_field > 2
+                && app.config_form_field <= app.config_form_roles.len() + 2
+            {
+                let role_idx = app.config_form_field - 3;
+                if let Some(role) = app.config_form_roles.get_mut(role_idx) {
+                    if app.config_form_cursor < role.len() {
+                        role.remove(app.config_form_cursor);
+                    }
+                }
             }
         }
         KeyCode::Char('+') => {
@@ -256,17 +491,22 @@ fn handle_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
             } else {
                 // In text field, treat as regular character
                 if app.config_form_field == 0 {
-                    app.config_form_bucket.push('+');
+                    app.config_form_bucket.insert(app.config_form_cursor, '+');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field == 1 {
-                    app.config_form_description.push('+');
+                    app.config_form_description
+                        .insert(app.config_form_cursor, '+');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field == 2 {
-                    app.config_form_region.push('+');
+                    app.config_form_region.insert(app.config_form_cursor, '+');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field > 2
                     && app.config_form_field <= app.config_form_roles.len() + 2
                 {
                     let role_idx = app.config_form_field - 3;
                     if let Some(role) = app.config_form_roles.get_mut(role_idx) {
-                        role.push('+');
+                        role.insert(app.config_form_cursor, '+');
+                        app.config_form_cursor += 1;
                     }
                 }
             }
@@ -279,17 +519,22 @@ fn handle_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
             } else {
                 // In text field, treat as regular character
                 if app.config_form_field == 0 {
-                    app.config_form_bucket.push('-');
+                    app.config_form_bucket.insert(app.config_form_cursor, '-');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field == 1 {
-                    app.config_form_description.push('-');
+                    app.config_form_description
+                        .insert(app.config_form_cursor, '-');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field == 2 {
-                    app.config_form_region.push('-');
+                    app.config_form_region.insert(app.config_form_cursor, '-');
+                    app.config_form_cursor += 1;
                 } else if app.config_form_field > 2
                     && app.config_form_field <= app.config_form_roles.len() + 2
                 {
                     let role_idx = app.config_form_field - 3;
                     if let Some(role) = app.config_form_roles.get_mut(role_idx) {
-                        role.push('-');
+                        role.insert(app.config_form_cursor, '-');
+                        app.config_form_cursor += 1;
                     }
                 }
             }
@@ -306,37 +551,44 @@ fn handle_config_form_input(app: &mut App, key: KeyCode) -> Result<()> {
         }
         KeyCode::Char(c) => {
             if app.config_form_field == 0 {
-                // Bucket name
-                app.config_form_bucket.push(c);
+                app.config_form_bucket.insert(app.config_form_cursor, c);
+                app.config_form_cursor += 1;
             } else if app.config_form_field == 1 {
-                // Description
-                app.config_form_description.push(c);
+                app.config_form_description
+                    .insert(app.config_form_cursor, c);
+                app.config_form_cursor += 1;
             } else if app.config_form_field == 2 {
-                // Region
-                app.config_form_region.push(c);
+                app.config_form_region.insert(app.config_form_cursor, c);
+                app.config_form_cursor += 1;
             } else if app.config_form_field > 2
                 && app.config_form_field <= app.config_form_roles.len() + 2
             {
-                // Role ARN
                 let role_idx = app.config_form_field - 3;
                 if let Some(role) = app.config_form_roles.get_mut(role_idx) {
-                    role.push(c);
+                    role.insert(app.config_form_cursor, c);
+                    app.config_form_cursor += 1;
                 }
             }
         }
         KeyCode::Backspace => {
-            if app.config_form_field == 0 {
-                app.config_form_bucket.pop();
-            } else if app.config_form_field == 1 {
-                app.config_form_description.pop();
-            } else if app.config_form_field == 2 {
-                app.config_form_region.pop();
-            } else if app.config_form_field > 2
-                && app.config_form_field <= app.config_form_roles.len() + 2
-            {
-                let role_idx = app.config_form_field - 3;
-                if let Some(role) = app.config_form_roles.get_mut(role_idx) {
-                    role.pop();
+            if app.config_form_cursor > 0 {
+                if app.config_form_field == 0 {
+                    app.config_form_cursor -= 1;
+                    app.config_form_bucket.remove(app.config_form_cursor);
+                } else if app.config_form_field == 1 {
+                    app.config_form_cursor -= 1;
+                    app.config_form_description.remove(app.config_form_cursor);
+                } else if app.config_form_field == 2 {
+                    app.config_form_cursor -= 1;
+                    app.config_form_region.remove(app.config_form_cursor);
+                } else if app.config_form_field > 2
+                    && app.config_form_field <= app.config_form_roles.len() + 2
+                {
+                    let role_idx = app.config_form_field - 3;
+                    if let Some(role) = app.config_form_roles.get_mut(role_idx) {
+                        app.config_form_cursor -= 1;
+                        role.remove(app.config_form_cursor);
+                    }
                 }
             }
         }
@@ -352,6 +604,16 @@ async fn handle_input_mode(app: &mut App, key: KeyCode, modifiers: KeyModifiers)
             match &app.input_mode {
                 crate::app::InputMode::CreateFolder => {
                     app.create_folder().await?;
+                    app.input_mode = crate::app::InputMode::None;
+                    app.go_back();
+                }
+                crate::app::InputMode::Filter => {
+                    app.apply_filter();
+                    app.input_mode = crate::app::InputMode::None;
+                    app.go_back();
+                }
+                crate::app::InputMode::Rename => {
+                    app.rename_file().await?;
                     app.input_mode = crate::app::InputMode::None;
                     app.go_back();
                 }
@@ -379,6 +641,27 @@ async fn handle_input_mode(app: &mut App, key: KeyCode, modifiers: KeyModifiers)
                 }
             }
         }
+        KeyCode::Left => {
+            if app.input_cursor_position > 0 {
+                app.input_cursor_position -= 1;
+            }
+        }
+        KeyCode::Right => {
+            if app.input_cursor_position < app.input_buffer.len() {
+                app.input_cursor_position += 1;
+            }
+        }
+        KeyCode::Home => {
+            app.input_cursor_position = 0;
+        }
+        KeyCode::End => {
+            app.input_cursor_position = app.input_buffer.len();
+        }
+        KeyCode::Delete => {
+            if app.input_cursor_position < app.input_buffer.len() {
+                app.input_buffer.remove(app.input_cursor_position);
+            }
+        }
         KeyCode::Char(c) => {
             if modifiers.contains(KeyModifiers::CONTROL) {
                 match c {
@@ -389,14 +672,66 @@ async fn handle_input_mode(app: &mut App, key: KeyCode, modifiers: KeyModifiers)
                     _ => {}
                 }
             } else {
-                app.input_buffer.push(c);
+                app.input_buffer.insert(app.input_cursor_position, c);
+                app.input_cursor_position += 1;
             }
         }
         KeyCode::Backspace => {
-            app.input_buffer.pop();
+            if app.input_cursor_position > 0 {
+                app.input_cursor_position -= 1;
+                app.input_buffer.remove(app.input_cursor_position);
+            }
         }
         KeyCode::Esc => {
             app.input_mode = crate::app::InputMode::None;
+            app.go_back();
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+async fn handle_file_preview_input(app: &mut App, key: KeyCode) -> Result<()> {
+    let line_count = app.preview_content.lines().count();
+
+    match key {
+        KeyCode::Up => {
+            if app.preview_scroll_offset > 0 {
+                app.preview_scroll_offset -= 1;
+            }
+        }
+        KeyCode::Down => {
+            if app.preview_scroll_offset < line_count.saturating_sub(1) {
+                app.preview_scroll_offset += 1;
+            }
+            // Check if we need to load more content (within 50 lines of end)
+            if app.preview_is_s3 && line_count.saturating_sub(app.preview_scroll_offset) < 50 {
+                app.load_more_preview_content().await?;
+            }
+        }
+        KeyCode::PageUp => {
+            app.preview_scroll_offset = app.preview_scroll_offset.saturating_sub(20);
+        }
+        KeyCode::PageDown => {
+            app.preview_scroll_offset =
+                (app.preview_scroll_offset + 20).min(line_count.saturating_sub(1));
+            // Check if we need to load more content (within 50 lines of end)
+            if app.preview_is_s3 && line_count.saturating_sub(app.preview_scroll_offset) < 50 {
+                app.load_more_preview_content().await?;
+            }
+        }
+        KeyCode::Home => {
+            app.preview_scroll_offset = 0;
+        }
+        KeyCode::End => {
+            app.preview_scroll_offset = line_count.saturating_sub(1);
+            // Load more content when jumping to end
+            if app.preview_is_s3 {
+                app.load_more_preview_content().await?;
+            }
+        }
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.preview_scroll_offset = 0;
             app.go_back();
         }
         _ => {}

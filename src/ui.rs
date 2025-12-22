@@ -9,15 +9,24 @@ use ratatui::{
 use crate::app::{ActivePanel, App, Panel, PanelType, Screen};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
+    // Draw the base screen
     match app.screen {
         Screen::DualPanel => draw_dual_panel(f, app),
         Screen::ConfigForm => draw_config_form(f, app),
         Screen::ProfileConfigForm => draw_profile_config_form(f, app),
+        Screen::SortDialog => draw_sort_dialog(f, app),
+        Screen::DeleteConfirmation => draw_delete_confirmation(f, app),
         Screen::FilePreview => draw_file_preview(f, app),
         Screen::Input => draw_input_dialog(f, app),
-        Screen::Error => draw_error_dialog(f, app),
-        Screen::Success => draw_success_dialog(f, app),
         Screen::Help => draw_help(f, app),
+    }
+
+    // Render error/success overlays on top of any screen
+    if !app.error_message.is_empty() {
+        draw_error_overlay(f, app);
+    }
+    if !app.success_message.is_empty() {
+        draw_success_overlay(f, app);
     }
 }
 
@@ -70,55 +79,72 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
         ActivePanel::Right => &app.right_panel,
     };
 
-    let menu_items = match &active_panel.panel_type {
-        PanelType::ProfileList => vec![
-            ("01", "Help(?)"),
+    let menu_items = if app.advanced_mode {
+        // Advanced Mode: nur F1 Help, F9 Back, F10 Quit
+        vec![
+            ("01", "Help"),
             ("02", ""),
             ("03", ""),
-            ("04", "Edit(P)"),
+            ("04", ""),
             ("05", ""),
             ("06", ""),
             ("07", ""),
             ("08", ""),
-            ("09", "Menu"),
-            ("10", "Exit(q)"),
-        ],
-        PanelType::BucketList { .. } => vec![
-            ("01", "Help(?)"),
-            ("02", "Create(B)"),
-            ("03", ""),
-            ("04", "Edit(E)"),
-            ("05", ""),
-            ("06", ""),
-            ("07", ""),
-            ("08", "Delete(D)"),
-            ("09", "Menu"),
-            ("10", "Exit(q)"),
-        ],
-        PanelType::S3Browser { .. } => vec![
-            ("01", "Help(?)"),
-            ("02", ""),
-            ("03", "View(V)"),
-            ("04", ""),
-            ("05", "Copy(C)"),
-            ("06", "Move"),
-            ("07", "Mkdir(M)"),
-            ("08", "Delete(Del)"),
-            ("09", "Menu"),
-            ("10", "Exit(q)"),
-        ],
-        PanelType::LocalFilesystem { .. } => vec![
-            ("01", "Help(?)"),
-            ("02", ""),
-            ("03", "View(V)"),
-            ("04", ""),
-            ("05", "Copy(C)"),
-            ("06", "Move"),
-            ("07", ""),
-            ("08", "Delete(Del)"),
-            ("09", "Menu"),
-            ("10", "Exit(q)"),
-        ],
+            ("09", "Back"),
+            ("10", "Quit"),
+        ]
+    } else {
+        // Normal Mode
+        match &active_panel.panel_type {
+            PanelType::ProfileList => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", "Edit"),
+                ("04", "Filter"),
+                ("05", ""),
+                ("06", ""),
+                ("07", ""),
+                ("08", ""),
+                ("09", "Advanced"),
+                ("10", "Quit"),
+            ],
+            PanelType::BucketList { .. } => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", "Edit Config"),
+                ("04", "Filter"),
+                ("05", ""),
+                ("06", ""),
+                ("07", "Add Bucket Conf"),
+                ("08", "Del Bucket Conf"),
+                ("09", "Advanced"),
+                ("10", "Quit"),
+            ],
+            PanelType::S3Browser { .. } => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", "View"),
+                ("04", "Filter"),
+                ("05", "Copy File"),
+                ("06", "Rename"),
+                ("07", "Mkdir"),
+                ("08", "Delete"),
+                ("09", "Advanced"),
+                ("10", "Quit"),
+            ],
+            PanelType::LocalFilesystem { .. } => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", "View"),
+                ("04", "Filter"),
+                ("05", "Copy File"),
+                ("06", "Rename"),
+                ("07", "Mkdir"),
+                ("08", "Delete"),
+                ("09", "Advanced"),
+                ("10", "Quit"),
+            ],
+        }
     };
 
     let mut spans = Vec::new();
@@ -175,19 +201,26 @@ fn draw_panel(
     let (title, items) = match &panel.panel_type {
         PanelType::ProfileList => {
             let title = "AWS Profiles".to_string();
-            let items: Vec<ListItem> = config_manager
-                .aws_profiles
+            let items: Vec<ListItem> = panel
+                .list_model
                 .iter()
                 .enumerate()
-                .map(|(i, profile)| {
+                .map(|(i, item)| {
+                    use crate::list_model::ItemData;
+
+                    let profile_name = match &item.data {
+                        ItemData::Profile(profile) => profile,
+                        _ => &item.name,
+                    };
+
                     let description = config_manager
-                        .get_profile_config(profile)
+                        .get_profile_config(profile_name)
                         .and_then(|p| p.description.as_ref());
 
                     let display = if let Some(desc) = description {
-                        format!("👤 {profile} ({desc})")
+                        format!("👤 {profile_name} ({desc})")
                     } else {
-                        format!("👤 {profile}")
+                        format!("👤 {profile_name}")
                     };
 
                     let style = if i == panel.selected_index && is_active {
@@ -204,49 +237,55 @@ fn draw_panel(
         }
         PanelType::BucketList { profile } => {
             let title = format!("Buckets for: {profile}");
-            let mut items: Vec<ListItem> = Vec::new();
+            let items: Vec<ListItem> = panel
+                .list_model
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    use crate::list_model::{ItemData, ItemType};
 
-            // Add parent directory entry to go back to ProfileList
-            let style = if panel.selected_index == 0 && is_active {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Blue)
-            };
-            items.push(ListItem::new("📁 ..").style(style));
+                    let display = match &item.item_type {
+                        ItemType::ParentDir => "📁 ..".to_string(),
+                        _ => {
+                            if let ItemData::Bucket(bucket_config) = &item.data {
+                                match (
+                                    &bucket_config.description,
+                                    bucket_config.role_chain.is_empty(),
+                                ) {
+                                    (Some(desc), true) => {
+                                        format!("🪣 {} ({})", bucket_config.name, desc)
+                                    }
+                                    (Some(desc), false) => format!(
+                                        "🪣 {} ({}) [{}]",
+                                        bucket_config.name,
+                                        desc,
+                                        bucket_config.role_chain.len()
+                                    ),
+                                    (None, true) => format!("🪣 {}", bucket_config.name),
+                                    (None, false) => format!(
+                                        "🪣 {} [{}]",
+                                        bucket_config.name,
+                                        bucket_config.role_chain.len()
+                                    ),
+                                }
+                            } else {
+                                item.name.clone()
+                            }
+                        }
+                    };
 
-            let buckets = config_manager.get_buckets_for_profile(profile);
-            items.extend(buckets.iter().enumerate().map(|(i, bucket_config)| {
-                let display = match (
-                    &bucket_config.description,
-                    bucket_config.role_chain.is_empty(),
-                ) {
-                    (Some(desc), true) => format!("🪣 {} ({})", bucket_config.name, desc),
-                    (Some(desc), false) => format!(
-                        "🪣 {} ({}) [{}]",
-                        bucket_config.name,
-                        desc,
-                        bucket_config.role_chain.len()
-                    ),
-                    (None, true) => format!("🪣 {}", bucket_config.name),
-                    (None, false) => format!(
-                        "🪣 {} [{}]",
-                        bucket_config.name,
-                        bucket_config.role_chain.len()
-                    ),
-                };
-
-                let adj_index = i + 1; // Adjust for ".." entry
-                let style = if adj_index == panel.selected_index && is_active {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(display).style(style)
-            }));
+                    let style = if i == panel.selected_index && is_active {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else if matches!(item.item_type, ItemType::ParentDir) {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(display).style(style)
+                })
+                .collect();
             (title, items)
         }
         PanelType::S3Browser {
@@ -257,48 +296,43 @@ fn draw_panel(
             let title = format!("S3: {bucket}/{prefix}");
             let mut items: Vec<ListItem> = Vec::new();
 
-            // Always add parent directory entry (go to parent prefix or back to BucketList)
-            let style = if panel.selected_index == 0 && is_active {
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Blue)
-            };
-            items.push(ListItem::new("📁 ..").style(style));
+            items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
+                use crate::list_model::ItemType;
 
-            let offset = if prefix.is_empty() { 0 } else { 1 };
-
-            items.extend(panel.s3_objects.iter().enumerate().map(|(i, obj)| {
-                let (name, size_str, modified_str) = if obj.is_prefix {
-                    let name = obj.key.trim_end_matches('/');
-                    let name = name.strip_prefix(prefix).unwrap_or(name);
-                    (format!("📁 {name}"), "<DIR>".to_string(), "".to_string())
-                } else {
-                    let name = obj.key.strip_prefix(prefix).unwrap_or(&obj.key);
-                    let size_str = format_size(obj.size as u64);
-                    let modified_str = if let Some(modified) = &obj.last_modified {
-                        modified.format("%Y-%m-%d %H:%M").to_string()
-                    } else {
-                        "".to_string()
-                    };
-                    (format!("📄 {name}"), size_str, modified_str)
+                let (icon_name, size_str, modified_str) = match &item.item_type {
+                    ItemType::ParentDir => ("📁 ..".to_string(), "".to_string(), "".to_string()),
+                    ItemType::Directory => {
+                        let display_name = item.name.strip_prefix(prefix).unwrap_or(&item.name);
+                        (
+                            format!("📁 {display_name}"),
+                            "<DIR>".to_string(),
+                            "".to_string(),
+                        )
+                    }
+                    ItemType::File => {
+                        let display_name = item.name.strip_prefix(prefix).unwrap_or(&item.name);
+                        let size_str = item.size.map(format_size).unwrap_or_default();
+                        let modified_str = item
+                            .modified
+                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_default();
+                        (format!("📄 {display_name}"), size_str, modified_str)
+                    }
                 };
 
                 // MC-style: Name (40 chars) | Size (10 chars) | Modified (16 chars)
                 let display = format!(
                     "{:<40} {:>10}  {}",
-                    truncate_string(&name, 40),
+                    truncate_string(&icon_name, 40),
                     size_str,
                     modified_str
                 );
 
-                let adj_index = i + offset;
-                let style = if adj_index == panel.selected_index && is_active {
+                let style = if i == panel.selected_index && is_active {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
-                } else if obj.is_prefix {
+                } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
                     Style::default().fg(Color::Blue)
                 } else {
                     Style::default()
@@ -311,62 +345,39 @@ fn draw_panel(
             let title = format!("Local: {}", path.display());
             let mut items: Vec<ListItem> = Vec::new();
 
-            // Add parent directory entry if not in root
-            let has_parent = path.parent().is_some();
-            if has_parent {
-                let style = if panel.selected_index == 0 && is_active {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::Blue)
-                };
-                items.push(ListItem::new("📁 ..").style(style));
-            }
+            items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
+                use crate::list_model::ItemType;
 
-            let offset = if has_parent { 1 } else { 0 };
-
-            items.extend(panel.local_files.iter().enumerate().map(|(i, file)| {
-                let (name, size_str, modified_str) = if file.is_dir {
-                    (
-                        format!("📁 {}", file.name),
+                let (icon_name, size_str, modified_str) = match &item.item_type {
+                    ItemType::ParentDir => ("📁 ..".to_string(), "".to_string(), "".to_string()),
+                    ItemType::Directory => (
+                        format!("📁 {}", item.name),
                         "<DIR>".to_string(),
                         "".to_string(),
-                    )
-                } else {
-                    let size_str = format_size(file.size);
-                    let modified_str = if let Some(modified) = file.modified {
-                        use std::time::UNIX_EPOCH;
-                        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
-                            let secs = duration.as_secs() as i64;
-                            if let Some(datetime) = chrono::DateTime::from_timestamp(secs, 0) {
-                                datetime.format("%Y-%m-%d %H:%M").to_string()
-                            } else {
-                                "".to_string()
-                            }
-                        } else {
-                            "".to_string()
-                        }
-                    } else {
-                        "".to_string()
-                    };
-                    (format!("📄 {}", file.name), size_str, modified_str)
+                    ),
+                    ItemType::File => {
+                        let size_str = item.size.map(format_size).unwrap_or_default();
+                        let modified_str = item
+                            .modified
+                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
+                            .unwrap_or_default();
+                        (format!("📄 {}", item.name), size_str, modified_str)
+                    }
                 };
 
                 // MC-style: Name (40 chars) | Size (10 chars) | Modified (16 chars)
                 let display = format!(
                     "{:<40} {:>10}  {}",
-                    truncate_string(&name, 40),
+                    truncate_string(&icon_name, 40),
                     size_str,
                     modified_str
                 );
 
-                let adj_index = i + offset;
-                let style = if adj_index == panel.selected_index && is_active {
+                let style = if i == panel.selected_index && is_active {
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
-                } else if file.is_dir {
+                } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
                     Style::default().fg(Color::Blue)
                 } else {
                     Style::default()
@@ -403,10 +414,17 @@ fn draw_panel(
         .take(visible_height)
         .collect();
 
+    // Add filter display to title if filter is active
+    let title_with_filter = if let Some(filter_text) = panel.list_model.get_filter_display() {
+        format!("{title} {filter_text} ")
+    } else {
+        title
+    };
+
     let list = List::new(visible_items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title(title)
+            .title(title_with_filter)
             .border_style(border_style),
     );
 
@@ -438,6 +456,14 @@ fn format_size(size: u64) -> String {
 }
 
 fn draw_file_preview(f: &mut Frame, app: &App) {
+    // Clear the entire screen to hide content below
+    f.render_widget(ratatui::widgets::Clear, f.area());
+
+    let base_block = Block::default()
+        .borders(Borders::NONE)
+        .style(Style::default().bg(Color::Black));
+    f.render_widget(base_block, f.area());
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -447,7 +473,32 @@ fn draw_file_preview(f: &mut Frame, app: &App) {
         ])
         .split(f.area());
 
-    let title = Paragraph::new(format!("File Preview: {}", app.preview_filename))
+    let line_count = app.preview_content.lines().count();
+
+    // Format file size
+    let file_size_str = format_size(app.preview_file_size as u64);
+    let loaded_size_str = format_size(app.preview_byte_offset as u64);
+
+    let title_text = if app.preview_is_s3 && app.preview_byte_offset < app.preview_file_size {
+        format!(
+            "File Preview: {} ({} of {} loaded) - Line {}/{}+",
+            app.preview_filename,
+            loaded_size_str,
+            file_size_str,
+            app.preview_scroll_offset + 1,
+            line_count
+        )
+    } else {
+        format!(
+            "File Preview: {} ({}) - Line {}/{}",
+            app.preview_filename,
+            file_size_str,
+            app.preview_scroll_offset + 1,
+            line_count
+        )
+    };
+
+    let title = Paragraph::new(title_text)
         .style(
             Style::default()
                 .fg(Color::Cyan)
@@ -457,16 +508,160 @@ fn draw_file_preview(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
-    let content = Paragraph::new(app.preview_content.clone())
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
+    // Clear content area before rendering to prevent scroll artifacts
+    f.render_widget(ratatui::widgets::Clear, chunks[1]);
+
+    // Convert tabs to spaces to ensure black background rendering
+    let content_text = app.preview_content.replace('\t', "    ");
+
+    let content = Paragraph::new(content_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().bg(Color::Black)),
+        )
+        .style(Style::default().bg(Color::Black))
+        .wrap(Wrap { trim: false })
+        .scroll((app.preview_scroll_offset as u16, 0));
     f.render_widget(content, chunks[1]);
 
-    let help = Paragraph::new("Press any key to close preview")
+    let help = Paragraph::new("↑/↓: Scroll | PgUp/PgDn: Page | Home/End: Jump | ESC/q: Close")
         .style(Style::default().fg(Color::Gray))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(help, chunks[2]);
+}
+
+fn draw_delete_confirmation(f: &mut Frame, app: &App) {
+    let area = centered_rect(70, 30, f.area());
+
+    let block = Block::default()
+        .title("Delete Confirmation")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    // Question
+    let item_type = if app.delete_confirmation_is_dir {
+        "directory"
+    } else {
+        "file"
+    };
+    let question = Paragraph::new(format!("Do you really want to delete this {item_type}?"))
+        .style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+        .alignment(Alignment::Center);
+    f.render_widget(question, chunks[0]);
+
+    // Path
+    let path_text = Paragraph::new(app.delete_confirmation_path.clone())
+        .style(Style::default().fg(Color::Cyan))
+        .alignment(Alignment::Center);
+    f.render_widget(path_text, chunks[1]);
+
+    // Buttons
+    let delete_style = if app.delete_confirmation_button == 0 {
+        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Red)
+    };
+
+    let cancel_style = if app.delete_confirmation_button == 1 {
+        Style::default()
+            .fg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+
+    let buttons = if app.delete_confirmation_button == 0 {
+        Paragraph::new("[ DELETE ]  Cancel")
+            .style(delete_style)
+            .alignment(Alignment::Center)
+    } else {
+        Paragraph::new("Delete  [ CANCEL ]")
+            .style(cancel_style)
+            .alignment(Alignment::Center)
+    };
+    f.render_widget(buttons, chunks[2]);
+
+    // Help
+    let help = Paragraph::new("←/→ or Tab: Select | Enter: Confirm | Esc: Cancel")
+        .style(Style::default().fg(Color::Gray))
+        .alignment(Alignment::Center);
+    f.render_widget(help, chunks[3]);
+}
+
+fn draw_sort_dialog(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 50, f.area());
+
+    let block = Block::default()
+        .title("Sort Options")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    let options = [
+        "Name A→Z (alphabetically ascending)",
+        "Name Z→A (alphabetically descending)",
+        "Size ↑ (small to large)",
+        "Size ↓ (large to small)",
+        "Date ↑ (oldest to newest)",
+        "Date ↓ (newest to oldest)",
+    ];
+
+    for (i, option) in options.iter().enumerate() {
+        let is_selected = i == app.sort_dialog_selected;
+        let prefix = if is_selected { "● " } else { "○ " };
+        let style = if is_selected {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+
+        let text = Paragraph::new(format!("{prefix}{option}")).style(style);
+        f.render_widget(text, chunks[i]);
+    }
+
+    let help = Paragraph::new("↑/↓: Select | Enter: Apply | Esc: Cancel")
+        .style(Style::default().fg(Color::Gray))
+        .alignment(Alignment::Center);
+    f.render_widget(help, chunks[7]);
 }
 
 fn draw_profile_config_form(f: &mut Frame, app: &App) {
@@ -512,6 +707,14 @@ fn draw_profile_config_form(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(description, form_chunks[0]);
 
+    // Render cursor for description field
+    if app.profile_form_field == 0 {
+        let cursor_x =
+            form_chunks[0].x + 1 + "Description: ".len() as u16 + app.profile_form_cursor as u16;
+        let cursor_y = form_chunks[0].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
+
     // Setup Script field
     let script_style = if app.profile_form_field == 1 {
         Style::default()
@@ -524,6 +727,14 @@ fn draw_profile_config_form(f: &mut Frame, app: &App) {
         .style(script_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(setup_script, form_chunks[1]);
+
+    // Render cursor for setup script field
+    if app.profile_form_field == 1 {
+        let cursor_x =
+            form_chunks[1].x + 1 + "Setup Script: ".len() as u16 + app.profile_form_cursor as u16;
+        let cursor_y = form_chunks[1].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
 
     // Buttons
     let save_style = if app.profile_form_field == 2 {
@@ -608,6 +819,14 @@ fn draw_config_form(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(bucket, form_chunks[0]);
 
+    // Render cursor for bucket name field
+    if app.config_form_field == 0 {
+        let cursor_x =
+            form_chunks[0].x + 1 + "Bucket Name: ".len() as u16 + app.config_form_cursor as u16;
+        let cursor_y = form_chunks[0].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
+
     // Description field
     let desc_style = if app.config_form_field == 1 {
         Style::default()
@@ -620,6 +839,14 @@ fn draw_config_form(f: &mut Frame, app: &App) {
         .style(desc_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(description, form_chunks[1]);
+
+    // Render cursor for description field
+    if app.config_form_field == 1 {
+        let cursor_x =
+            form_chunks[1].x + 1 + "Description: ".len() as u16 + app.config_form_cursor as u16;
+        let cursor_y = form_chunks[1].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
 
     // Region field
     let region_style = if app.config_form_field == 2 {
@@ -634,27 +861,61 @@ fn draw_config_form(f: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(region, form_chunks[2]);
 
-    // Role ARNs
-    let mut role_text = String::from("Role ARNs:\n");
-    for (i, role) in app.config_form_roles.iter().enumerate() {
-        let prefix = if app.config_form_field == i + 3 {
-            "> "
-        } else {
-            "  "
-        };
-        let style_marker = if app.config_form_field == i + 3 {
-            "*"
-        } else {
-            ""
-        };
-        role_text.push_str(&format!("{}[{}]{} {}\n", prefix, i + 1, style_marker, role));
+    // Render cursor for region field
+    if app.config_form_field == 2 {
+        let cursor_x =
+            form_chunks[2].x + 1 + "Region: ".len() as u16 + app.config_form_cursor as u16;
+        let cursor_y = form_chunks[2].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
     }
-    role_text.push_str("\nPress + to add role, - to remove last");
 
-    let roles = Paragraph::new(role_text)
-        .block(Block::default().borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
-    f.render_widget(roles, form_chunks[3]);
+    // Role ARNs - render each role separately with proper styling
+    let roles_area = form_chunks[3];
+    let role_block = Block::default().borders(Borders::ALL).title("Role ARNs");
+    f.render_widget(role_block, roles_area);
+
+    let inner_area = roles_area.inner(ratatui::layout::Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let role_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(
+            std::iter::repeat_n(Constraint::Length(1), app.config_form_roles.len() + 1)
+                .collect::<Vec<_>>(),
+        )
+        .split(inner_area);
+
+    for (i, role) in app.config_form_roles.iter().enumerate() {
+        let role_style = if app.config_form_field == i + 3 {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        let role_text = format!("[{}] {}", i + 1, role);
+        let role_para = Paragraph::new(role_text).style(role_style);
+        if i < role_chunks.len() {
+            f.render_widget(role_para, role_chunks[i]);
+
+            // Render cursor for active role field
+            if app.config_form_field == i + 3 {
+                let cursor_x = role_chunks[i].x
+                    + format!("[{}] ", i + 1).len() as u16
+                    + app.config_form_cursor as u16;
+                let cursor_y = role_chunks[i].y;
+                f.set_cursor_position((cursor_x, cursor_y));
+            }
+        }
+    }
+
+    // Help text at bottom of roles area
+    if !app.config_form_roles.is_empty() && app.config_form_roles.len() < role_chunks.len() {
+        let help_text = Paragraph::new("Press + to add role, - to remove last")
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(help_text, role_chunks[app.config_form_roles.len()]);
+    }
 
     // Buttons
     let button_field = app.config_form_roles.len() + 3;
@@ -694,6 +955,10 @@ fn draw_config_form(f: &mut Frame, app: &App) {
 fn draw_input_dialog(f: &mut Frame, app: &App) {
     let area = centered_rect(70, 20, f.area());
 
+    // Calculate cursor position for rendering
+    let cursor_x = area.x + 1 + app.input_cursor_position as u16;
+    let cursor_y = area.y + 1;
+
     let input = Paragraph::new(app.input_buffer.as_str())
         .style(Style::default().fg(Color::Yellow))
         .block(
@@ -704,17 +969,23 @@ fn draw_input_dialog(f: &mut Frame, app: &App) {
         );
 
     f.render_widget(input, area);
+
+    // Set cursor position
+    f.set_cursor_position((cursor_x.min(area.x + area.width - 2), cursor_y));
 }
 
-fn draw_error_dialog(f: &mut Frame, app: &App) {
-    let area = centered_rect(70, 30, f.area());
+fn draw_error_overlay(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 20, f.area());
+
+    // Clear the area first to hide content below
+    f.render_widget(ratatui::widgets::Clear, area);
 
     let error = Paragraph::new(app.error_message.as_str())
-        .style(Style::default().fg(Color::Red))
+        .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Error")
+                .title("⚠ Error")
                 .style(Style::default().bg(Color::Black)),
         )
         .wrap(Wrap { trim: false });
@@ -722,15 +993,22 @@ fn draw_error_dialog(f: &mut Frame, app: &App) {
     f.render_widget(error, area);
 }
 
-fn draw_success_dialog(f: &mut Frame, app: &App) {
-    let area = centered_rect(70, 30, f.area());
+fn draw_success_overlay(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 20, f.area());
+
+    // Clear the area first to hide content below
+    f.render_widget(ratatui::widgets::Clear, area);
 
     let success = Paragraph::new(app.success_message.as_str())
-        .style(Style::default().fg(Color::Green))
+        .style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Success")
+                .title("✓ Success")
                 .style(Style::default().bg(Color::Black)),
         )
         .wrap(Wrap { trim: false });
@@ -761,14 +1039,21 @@ fn draw_help(f: &mut Frame, _app: &App) {
         "  Enter       - Open selected item (profile/folder/bucket)",
         "  Backspace   - Go to parent directory",
         "",
-        "Panel Operations:",
-        "  F           - Toggle local filesystem view",
-        "  C           - Copy from active to inactive panel",
+        "Function Keys:",
+        "  F1          - Show this help",
+        "  F2          - Sort (Name, Size, Date)",
+        "  F3          - Edit (Profile/Bucket) / View file (S3/Filesystem)",
+        "  F4          - Filter items",
+        "  F5          - Copy from active to inactive panel",
+        "  F6          - Rename file/folder (S3/Filesystem)",
+        "  F7          - Create bucket config (BucketList) / Create folder (S3/Filesystem)",
+        "  F8          - Delete selected item",
+        "  F9          - Toggle Advanced Mode",
+        "  F10         - Quit application",
+        "  F11         - Toggle active panel between AWS-S3-Mode or local Filesystem",
         "",
         "General:",
-        "  q           - Quit application",
-        "  ?           - Show this help",
-        "  Esc         - Close dialog/Go back",
+        "  q/Esc       - Quit application / Close dialog",
     ];
 
     let help_paragraph = Paragraph::new(help_text.join("\n"))
