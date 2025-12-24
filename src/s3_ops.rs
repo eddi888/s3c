@@ -4,8 +4,12 @@ use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
 use chrono::{DateTime, Utc};
 use std::path::Path;
+use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Mutex;
+
+pub type ProgressCallback = Arc<Mutex<dyn FnMut(u64) + Send>>;
 
 #[derive(Debug, Clone)]
 pub struct S3Object {
@@ -142,6 +146,15 @@ impl S3Manager {
     }
 
     pub async fn download_file(&self, key: &str, local_path: &Path) -> Result<()> {
+        self.download_file_with_progress(key, local_path, None).await
+    }
+
+    pub async fn download_file_with_progress(
+        &self,
+        key: &str,
+        local_path: &Path,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<()> {
         let resp = self
             .client
             .get_object()
@@ -157,9 +170,16 @@ impl S3Manager {
 
         let mut file = File::create(local_path).await?;
         let mut stream = resp.body;
+        let mut total_transferred = 0u64;
 
         while let Some(bytes) = stream.try_next().await? {
             file.write_all(&bytes).await?;
+            total_transferred += bytes.len() as u64;
+
+            if let Some(ref callback) = progress_callback {
+                let mut cb = callback.lock().await;
+                cb(total_transferred);
+            }
         }
 
         file.flush().await?;
@@ -167,6 +187,51 @@ impl S3Manager {
     }
 
     pub async fn upload_file(&self, local_path: &Path, key: &str) -> Result<()> {
+        self.upload_file_with_progress(local_path, key, None).await
+    }
+
+    pub async fn upload_file_with_progress(
+        &self,
+        local_path: &Path,
+        key: &str,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<()> {
+        use tokio::io::AsyncReadExt;
+
+        let file_size = tokio::fs::metadata(local_path)
+            .await
+            .context("Failed to get file metadata")?
+            .len();
+
+        if let Some(ref callback) = progress_callback {
+            let mut cb = callback.lock().await;
+            cb(0);
+        }
+
+        // Read file and track progress
+        let mut file = File::open(local_path).await?;
+        let mut buffer = vec![0u8; 8 * 1024 * 1024]; // 8MB buffer
+        let mut total_transferred = 0u64;
+
+        loop {
+            let bytes_read = file.read(&mut buffer).await?;
+            if bytes_read == 0 {
+                break;
+            }
+
+            total_transferred += bytes_read as u64;
+
+            if let Some(ref callback) = progress_callback {
+                let mut cb = callback.lock().await;
+                cb(total_transferred);
+            }
+
+            if total_transferred >= file_size {
+                break;
+            }
+        }
+
+        // Upload file
         let body = ByteStream::from_path(local_path)
             .await
             .context("Failed to read local file")?;
@@ -179,6 +244,11 @@ impl S3Manager {
             .send()
             .await
             .context("Failed to upload object")?;
+
+        if let Some(ref callback) = progress_callback {
+            let mut cb = callback.lock().await;
+            cb(file_size);
+        }
 
         Ok(())
     }
@@ -267,8 +337,41 @@ impl S3Manager {
 
     #[allow(dead_code)]
     pub async fn move_object(&self, source_key: &str, dest_key: &str) -> Result<()> {
+        self.move_object_with_progress(source_key, dest_key, None).await
+    }
+
+    pub async fn move_object_with_progress(
+        &self,
+        source_key: &str,
+        dest_key: &str,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<()> {
+        // Get object size for progress tracking
+        let object_size = self.get_object_size(source_key).await?;
+
+        if let Some(ref callback) = progress_callback {
+            let mut cb = callback.lock().await;
+            cb(0);
+        }
+
+        // Try server-side copy first
         self.copy_object(source_key, dest_key).await?;
+
+        // Update progress to 50% after copy
+        if let Some(ref callback) = progress_callback {
+            let mut cb = callback.lock().await;
+            cb((object_size / 2) as u64);
+        }
+
+        // Delete original
         self.delete_object(source_key).await?;
+
+        // Update progress to 100% after delete
+        if let Some(ref callback) = progress_callback {
+            let mut cb = callback.lock().await;
+            cb(object_size as u64);
+        }
+
         Ok(())
     }
 
@@ -286,7 +389,16 @@ impl S3Manager {
 
     #[allow(dead_code)]
     pub async fn rename_object(&self, old_key: &str, new_key: &str) -> Result<()> {
-        self.move_object(old_key, new_key).await
+        self.rename_object_with_progress(old_key, new_key, None).await
+    }
+
+    pub async fn rename_object_with_progress(
+        &self,
+        old_key: &str,
+        new_key: &str,
+        progress_callback: Option<ProgressCallback>,
+    ) -> Result<()> {
+        self.move_object_with_progress(old_key, new_key, progress_callback).await
     }
 
     pub async fn get_object_size(&self, key: &str) -> Result<i64> {

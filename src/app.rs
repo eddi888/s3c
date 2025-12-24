@@ -1,5 +1,6 @@
 use crate::config::ConfigManager;
 use crate::list_model::{ItemData, ItemType, PanelItem, PanelListModel};
+use crate::operations::FileOperation;
 use crate::s3_ops::{S3Manager, S3Object};
 use anyhow::{Context, Result};
 use std::fs;
@@ -102,6 +103,7 @@ pub struct App {
     pub input_cursor_position: usize,
     pub rename_original_path: String,
     pub advanced_mode: bool,
+    pub file_operation_queue: Option<FileOperation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -176,7 +178,7 @@ pub fn buckets_to_items(buckets: Vec<crate::config::BucketConfig>) -> Vec<PanelI
     items
 }
 
-fn s3_objects_to_items(objects: Vec<S3Object>) -> Vec<PanelItem> {
+pub(crate) fn s3_objects_to_items(objects: Vec<S3Object>) -> Vec<PanelItem> {
     let mut items = vec![PanelItem {
         name: "..".to_string(),
         item_type: ItemType::ParentDir,
@@ -217,7 +219,7 @@ fn s3_objects_to_items(objects: Vec<S3Object>) -> Vec<PanelItem> {
     items
 }
 
-fn local_files_to_items(files: Vec<LocalFile>, has_parent: bool) -> Vec<PanelItem> {
+pub(crate) fn local_files_to_items(files: Vec<LocalFile>, has_parent: bool) -> Vec<PanelItem> {
     let mut items = Vec::new();
 
     if has_parent {
@@ -305,6 +307,7 @@ impl App {
             input_cursor_position: 0,
             rename_original_path: String::new(),
             advanced_mode: false,
+            file_operation_queue: None,
         };
 
         // Load local files for right panel
@@ -332,84 +335,6 @@ impl App {
             ActivePanel::Left => &mut self.left_panel,
             ActivePanel::Right => &mut self.right_panel,
         }
-    }
-
-    pub fn switch_panel(&mut self) {
-        self.active_panel = match self.active_panel {
-            ActivePanel::Left => ActivePanel::Right,
-            ActivePanel::Right => ActivePanel::Left,
-        };
-    }
-
-    pub fn navigate_up(&mut self) {
-        let panel = self.get_active_panel();
-        if panel.selected_index > 0 {
-            panel.selected_index -= 1;
-            // Adjust scroll if selected moved above visible area
-            if panel.selected_index < panel.scroll_offset {
-                panel.scroll_offset = panel.selected_index;
-            }
-        }
-    }
-
-    pub fn navigate_down(&mut self) {
-        let max = self.get_panel_item_count();
-        let panel = self.get_active_panel();
-        if panel.selected_index < max.saturating_sub(1) {
-            panel.selected_index += 1;
-        }
-    }
-
-    pub fn navigate_page_up(&mut self) {
-        let panel = self.get_active_panel();
-        let page_size = panel.visible_height;
-
-        if panel.selected_index >= page_size {
-            panel.selected_index -= page_size;
-            panel.scroll_offset = panel.scroll_offset.saturating_sub(page_size);
-        } else {
-            panel.selected_index = 0;
-            panel.scroll_offset = 0;
-        }
-    }
-
-    pub fn navigate_page_down(&mut self) {
-        let max = self.get_panel_item_count();
-        let panel = self.get_active_panel();
-        let page_size = panel.visible_height;
-
-        if panel.selected_index + page_size < max {
-            panel.selected_index += page_size;
-            panel.scroll_offset =
-                (panel.scroll_offset + page_size).min(max.saturating_sub(panel.visible_height));
-        } else if max > 0 {
-            panel.selected_index = max - 1;
-            panel.scroll_offset = max.saturating_sub(panel.visible_height);
-        }
-    }
-
-    pub fn navigate_home(&mut self) {
-        let panel = self.get_active_panel();
-        panel.selected_index = 0;
-        panel.scroll_offset = 0;
-    }
-
-    pub fn navigate_end(&mut self) {
-        let max = self.get_panel_item_count();
-        let panel = self.get_active_panel();
-
-        if max > 0 {
-            panel.selected_index = max - 1;
-            panel.scroll_offset = max.saturating_sub(panel.visible_height);
-        }
-    }
-
-    fn get_panel_item_count(&self) -> usize {
-        let panel = match self.active_panel {
-            ActivePanel::Left => &self.left_panel,
-            ActivePanel::Right => &self.right_panel,
-        };
-        panel.list_model.len()
     }
 
     pub async fn enter_selected(&mut self) -> Result<()> {
@@ -668,7 +593,7 @@ impl App {
         Ok(())
     }
 
-    fn read_local_directory(&self, path: &PathBuf) -> Result<Vec<LocalFile>> {
+    pub(crate) fn read_local_directory(&self, path: &PathBuf) -> Result<Vec<LocalFile>> {
         let mut files = Vec::new();
 
         for entry in fs::read_dir(path)? {
@@ -1002,203 +927,6 @@ impl App {
         }
     }
 
-    pub async fn copy_to_other_panel(&mut self) -> Result<()> {
-        let (source_panel, dest_panel) = match self.active_panel {
-            ActivePanel::Left => (&self.left_panel, &self.right_panel),
-            ActivePanel::Right => (&self.right_panel, &self.left_panel),
-        };
-
-        let source_type = source_panel.panel_type.clone();
-        let dest_type = dest_panel.panel_type.clone();
-        let source_selected = source_panel.selected_index;
-
-        match (&source_type, &dest_type) {
-            // S3 → Local: Download file
-            (PanelType::S3Browser { prefix: _, .. }, PanelType::LocalFilesystem { path }) => {
-                let item = source_panel.list_model.get_item(source_selected);
-
-                if let Some(PanelItem {
-                    item_type: ItemType::File,
-                    data: ItemData::S3Object(s3_obj),
-                    name,
-                    ..
-                }) = item
-                {
-                    let filename = name;
-                    let local_path = path.join(filename);
-                    let key = s3_obj.key.clone();
-
-                    if let Some(s3_manager) = &source_panel.s3_manager {
-                        match s3_manager.download_file(&key, &local_path).await {
-                            Ok(_) => {
-                                self.show_success(&format!("Downloaded: {filename}"));
-
-                                // Reload destination panel
-                                self.reload_local_files().await?;
-                            }
-                            Err(e) => {
-                                let error_msg = format!("{e}");
-                                let path_display = local_path.display();
-                                if error_msg.contains("Permission denied")
-                                    || error_msg.contains("permission denied")
-                                {
-                                    self.show_error(&format!(
-                                        "Permission denied: Cannot write to '{path_display}'"
-                                    ));
-                                } else {
-                                    self.show_error(&format!("Download failed: {e}"));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Local → S3: Upload file (prompt for path)
-            (PanelType::LocalFilesystem { path: _ }, PanelType::S3Browser { prefix, .. }) => {
-                let item = source_panel.list_model.get_item(source_selected);
-
-                if let Some(PanelItem {
-                    item_type: ItemType::File,
-                    data:
-                        ItemData::LocalFile {
-                            path: file_path, ..
-                        },
-                    name,
-                    ..
-                }) = item
-                {
-                    // Default S3 key
-                    let default_s3_key = if prefix.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{prefix}{name}")
-                    };
-
-                    // Prompt user for upload path
-                    self.input_mode = InputMode::UploadPath {
-                        local_file_path: file_path.clone(),
-                        local_file_name: name.clone(),
-                    };
-                    self.input_buffer = default_s3_key;
-                    self.input_prompt = "Upload to S3 path:".to_string();
-                    self.prev_screen = Some(self.screen.clone());
-                    self.screen = Screen::Input;
-                }
-            }
-
-            // S3 → S3: Copy between buckets
-            (
-                PanelType::S3Browser {
-                    bucket: source_bucket,
-                    prefix: _source_prefix,
-                    ..
-                },
-                PanelType::S3Browser {
-                    prefix: dest_prefix,
-                    ..
-                },
-            ) => {
-                let item = source_panel.list_model.get_item(source_selected);
-
-                if let Some(PanelItem {
-                    item_type: ItemType::File,
-                    data: ItemData::S3Object(s3_obj),
-                    name,
-                    ..
-                }) = item
-                {
-                    let source_key = &s3_obj.key;
-
-                    // Build destination key
-                    let dest_key = if dest_prefix.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{dest_prefix}{name}")
-                    };
-
-                    if let (Some(source_manager), Some(dest_manager)) =
-                        (&source_panel.s3_manager, &dest_panel.s3_manager)
-                    {
-                        // Try server-side copy first (works for same-bucket and cross-bucket)
-                        match dest_manager
-                            .copy_from_bucket(source_bucket, source_key, &dest_key)
-                            .await
-                        {
-                            Ok(_) => {
-                                self.show_success(&format!("Copied: {name}"));
-                                self.reload_s3_browser().await?;
-                            }
-                            Err(_) => {
-                                // Fallback to stream-based copy (cross-account/region)
-                                match dest_manager
-                                    .stream_copy_from(source_manager, source_key, &dest_key)
-                                    .await
-                                {
-                                    Ok(_) => {
-                                        self.show_success(&format!("Copied: {name}"));
-                                        self.reload_s3_browser().await?;
-                                    }
-                                    Err(e) => {
-                                        self.show_error(&format!("Copy failed: {e}"));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Local → Local: Copy file
-            (
-                PanelType::LocalFilesystem { path: _source_path },
-                PanelType::LocalFilesystem { path: dest_path },
-            ) => {
-                let item = source_panel.list_model.get_item(source_selected);
-
-                if let Some(PanelItem {
-                    item_type: ItemType::File,
-                    data:
-                        ItemData::LocalFile {
-                            path: source_file_path,
-                            ..
-                        },
-                    name,
-                    ..
-                }) = item
-                {
-                    let dest_file_path = dest_path.join(name);
-
-                    match fs::copy(source_file_path, &dest_file_path) {
-                        Ok(_) => {
-                            self.show_success(&format!("Copied: {name}"));
-                            self.reload_local_files().await?;
-                        }
-                        Err(e) => {
-                            let error_msg = format!("{e}");
-                            if error_msg.contains("Permission denied")
-                                || error_msg.contains("permission denied")
-                            {
-                                self.show_error(&format!(
-                                    "Permission denied: Cannot write to '{}'",
-                                    dest_file_path.display()
-                                ));
-                            } else {
-                                self.show_error(&format!("Copy failed: {e}"));
-                            }
-                        }
-                    }
-                }
-            }
-
-            _ => {
-                self.show_error("Unsupported copy operation");
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn get_inactive_panel(&self) -> &Panel {
         match self.active_panel {
             ActivePanel::Left => &self.right_panel,
@@ -1213,7 +941,7 @@ impl App {
         }
     }
 
-    async fn reload_local_files(&mut self) -> Result<()> {
+    pub(crate) async fn reload_local_files(&mut self) -> Result<()> {
         // Get path first to avoid borrow checker issues
         let path_clone =
             if let PanelType::LocalFilesystem { path } = &self.get_inactive_panel().panel_type {
@@ -1249,7 +977,7 @@ impl App {
         Ok(())
     }
 
-    pub async fn reload_s3_browser(&mut self) -> Result<()> {
+    pub(crate) async fn reload_s3_browser(&mut self) -> Result<()> {
         let panel = self.get_inactive_panel_mut();
         if let PanelType::S3Browser { prefix, .. } = &panel.panel_type {
             let prefix_clone = prefix.clone();
@@ -1570,221 +1298,4 @@ impl App {
         Ok(())
     }
 
-    pub async fn rename_file(&mut self) -> Result<()> {
-        let new_path = self.input_buffer.trim().to_string();
-        let old_path = self.rename_original_path.clone();
-
-        if new_path.is_empty() || new_path == old_path {
-            return Ok(());
-        }
-
-        let panel_type = self.get_active_panel().panel_type.clone();
-
-        match panel_type {
-            PanelType::S3Browser { prefix, .. } => {
-                // S3: Copy to new key, then delete old key
-                if let Some(s3_manager) = &self.get_active_panel().s3_manager {
-                    // Copy object to new key
-                    match s3_manager.copy_object(&old_path, &new_path).await {
-                        Ok(_) => {
-                            // Delete old key
-                            match s3_manager.delete_object(&old_path).await {
-                                Ok(_) => {
-                                    // Reload panel
-                                    match s3_manager.list_objects(&prefix).await {
-                                        Ok(objects) => {
-                                            let panel = self.get_active_panel();
-                                            panel
-                                                .list_model
-                                                .set_items(s3_objects_to_items(objects));
-                                        }
-                                        Err(e) => {
-                                            self.show_error(&format!("Failed to reload: {e}"));
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    let error_msg = format!("{e}");
-                                    if error_msg.contains("AccessDenied") {
-                                        self.show_error("Rename failed: No delete permission. Old file still exists!");
-                                    } else {
-                                        self.show_error(&format!("Failed to delete old file: {e}. File was copied but old file remains!"));
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            self.show_error(&format!("Rename failed: {e}"));
-                        }
-                    }
-                }
-            }
-            PanelType::LocalFilesystem { path } => {
-                let old_path_buf = std::path::PathBuf::from(&old_path);
-                let new_path_buf = std::path::PathBuf::from(&new_path);
-
-                // Try native rename (works if same filesystem)
-                match std::fs::rename(&old_path_buf, &new_path_buf) {
-                    Ok(_) => {
-                        // Reload panel
-                        let has_parent = path.parent().is_some();
-                        if let Ok(files) = self.read_local_directory(&path) {
-                            let panel = self.get_active_panel();
-                            panel
-                                .list_model
-                                .set_items(local_files_to_items(files, has_parent));
-                        }
-                    }
-                    Err(e) => {
-                        self.show_error(&format!("Rename failed: {e}"));
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    pub async fn delete_file(&mut self) -> Result<()> {
-        let panel = self.get_active_panel();
-        let panel_type = panel.panel_type.clone();
-        let selected_index = panel.selected_index;
-
-        match panel_type {
-            PanelType::S3Browser { .. } => {
-                let item = self.get_active_panel().list_model.get_item(selected_index);
-
-                if let Some(PanelItem {
-                    data: ItemData::S3Object(s3_obj),
-                    name,
-                    ..
-                }) = item
-                {
-                    let key = s3_obj.key.clone();
-                    let name = name.clone();
-
-                    // Show confirmation dialog
-                    self.delete_confirmation_path = key;
-                    self.delete_confirmation_name = name;
-                    self.delete_confirmation_is_dir = false;
-                    self.delete_confirmation_button = 0;
-                    self.prev_screen = Some(self.screen.clone());
-                    self.screen = Screen::DeleteConfirmation;
-                }
-            }
-            PanelType::LocalFilesystem { .. } => {
-                let item = self.get_active_panel().list_model.get_item(selected_index);
-
-                if let Some(PanelItem {
-                    item_type,
-                    data:
-                        ItemData::LocalFile {
-                            path: file_path, ..
-                        },
-                    name,
-                    ..
-                }) = item
-                {
-                    let file_path = file_path.clone();
-                    let name = name.clone();
-                    let is_dir = matches!(item_type, ItemType::Directory);
-
-                    // Show confirmation dialog
-                    self.delete_confirmation_path = file_path.display().to_string();
-                    self.delete_confirmation_name = name;
-                    self.delete_confirmation_is_dir = is_dir;
-                    self.delete_confirmation_button = 0;
-                    self.prev_screen = Some(self.screen.clone());
-                    self.screen = Screen::DeleteConfirmation;
-                }
-            }
-            PanelType::BucketList { .. } => {
-                self.delete_bucket_config()?;
-            }
-            _ => {
-                self.show_error("Delete only available for files and bucket configs");
-            }
-        }
-
-        Ok(())
-    }
-
-    pub async fn confirm_delete(&mut self) -> Result<()> {
-        let panel = self.get_active_panel();
-        let panel_type = panel.panel_type.clone();
-
-        match panel_type {
-            PanelType::S3Browser { prefix, .. } => {
-                let key = self.delete_confirmation_path.clone();
-
-                if let Some(s3_manager) = &self.get_active_panel().s3_manager {
-                    match s3_manager.delete_object(&key).await {
-                        Ok(_) => {
-                            // Reload current panel
-                            match s3_manager.list_objects(&prefix).await {
-                                Ok(objects) => {
-                                    let panel = self.get_active_panel();
-                                    panel.list_model.set_items(s3_objects_to_items(objects));
-                                    if panel.selected_index > 0 {
-                                        panel.selected_index -= 1;
-                                    }
-                                    self.show_success(&format!(
-                                        "Deleted: {}",
-                                        self.delete_confirmation_name
-                                    ));
-                                }
-                                Err(e) => {
-                                    self.show_error(&format!("Failed to reload after delete: {e}"));
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            let error_msg = format!("{e}");
-                            if error_msg.contains("AccessDenied") {
-                                self.show_error(&format!(
-                                    "Delete failed: No permission to delete '{}'",
-                                    self.delete_confirmation_name
-                                ));
-                            } else {
-                                self.show_error(&format!("Delete failed: {e}"));
-                            }
-                        }
-                    }
-                }
-            }
-            PanelType::LocalFilesystem { path } => {
-                let file_path = std::path::PathBuf::from(self.delete_confirmation_path.clone());
-                let is_dir = self.delete_confirmation_is_dir;
-
-                let result = if is_dir {
-                    std::fs::remove_dir_all(&file_path)
-                } else {
-                    std::fs::remove_file(&file_path)
-                };
-
-                match result {
-                    Ok(_) => {
-                        // Reload current panel
-                        let has_parent = path.parent().is_some();
-                        if let Ok(files) = self.read_local_directory(&path) {
-                            let panel = self.get_active_panel();
-                            panel
-                                .list_model
-                                .set_items(local_files_to_items(files, has_parent));
-                            if panel.selected_index > 0 {
-                                panel.selected_index -= 1;
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // Ignore error - dialog will close anyway
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
 }

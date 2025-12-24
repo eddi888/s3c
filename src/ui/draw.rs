@@ -1,3 +1,9 @@
+use super::dialogs::{
+    draw_config_form, draw_delete_confirmation, draw_error_overlay, draw_input_dialog,
+    draw_profile_config_form, draw_sort_dialog, draw_success_overlay,
+};
+use super::helpers::{centered_rect, format_size, truncate_string};
+use super::widgets::draw_file_operation_queue;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -31,13 +37,25 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 }
 
 fn draw_dual_panel(f: &mut Frame, app: &mut App) {
+    // Check if queue is active to adjust layout
+    let has_queue = app.file_operation_queue.is_some();
+    
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
+        .constraints(if has_queue {
+            vec![
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(4),  // Queue area
+                Constraint::Length(1),
+            ]
+        } else {
+            vec![
+                Constraint::Length(3),
+                Constraint::Min(0),
+                Constraint::Length(1),
+            ]
+        })
         .split(f.area());
 
     let title = Paragraph::new("s3c - S3 Commander")
@@ -72,6 +90,11 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
         &mut app.right_panel,
         is_right_active,
     );
+
+    // Draw queue if active
+    if has_queue {
+        draw_file_operation_queue(f, app, chunks[2]);
+    }
 
     // MC-style function key menu footer with proper colors - context dependent
     let active_panel = match app.active_panel {
@@ -182,7 +205,8 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
     let help = Paragraph::new(line)
         .style(Style::default().bg(Color::Black))
         .block(Block::default());
-    f.render_widget(help, chunks[2]);
+    let footer_chunk = if has_queue { chunks[3] } else { chunks[2] };
+    f.render_widget(help, footer_chunk);
 }
 
 fn draw_panel(
@@ -431,30 +455,6 @@ fn draw_panel(
     f.render_widget(list, area);
 }
 
-fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
-    }
-}
-
-fn format_size(size: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-
-    if size >= GB {
-        format!("{:.2} GB", size as f64 / GB as f64)
-    } else if size >= MB {
-        format!("{:.2} MB", size as f64 / MB as f64)
-    } else if size >= KB {
-        format!("{:.2} KB", size as f64 / KB as f64)
-    } else {
-        format!("{size} B")
-    }
-}
-
 fn draw_file_preview(f: &mut Frame, app: &App) {
     // Clear the entire screen to hide content below
     f.render_widget(ratatui::widgets::Clear, f.area());
@@ -532,489 +532,6 @@ fn draw_file_preview(f: &mut Frame, app: &App) {
     f.render_widget(help, chunks[2]);
 }
 
-fn draw_delete_confirmation(f: &mut Frame, app: &App) {
-    let area = centered_rect(70, 30, f.area());
-
-    let block = Block::default()
-        .title("Delete Confirmation")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    // Question
-    let item_type = if app.delete_confirmation_is_dir {
-        "directory"
-    } else {
-        "file"
-    };
-    let question = Paragraph::new(format!("Do you really want to delete this {item_type}?"))
-        .style(
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center);
-    f.render_widget(question, chunks[0]);
-
-    // Path
-    let path_text = Paragraph::new(app.delete_confirmation_path.clone())
-        .style(Style::default().fg(Color::Cyan))
-        .alignment(Alignment::Center);
-    f.render_widget(path_text, chunks[1]);
-
-    // Buttons
-    let delete_style = if app.delete_confirmation_button == 0 {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-
-    let cancel_style = if app.delete_confirmation_button == 1 {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-
-    let buttons = if app.delete_confirmation_button == 0 {
-        Paragraph::new("[ DELETE ]  Cancel")
-            .style(delete_style)
-            .alignment(Alignment::Center)
-    } else {
-        Paragraph::new("Delete  [ CANCEL ]")
-            .style(cancel_style)
-            .alignment(Alignment::Center)
-    };
-    f.render_widget(buttons, chunks[2]);
-
-    // Help
-    let help = Paragraph::new("←/→ or Tab: Select | Enter: Confirm | Esc: Cancel")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center);
-    f.render_widget(help, chunks[3]);
-}
-
-fn draw_sort_dialog(f: &mut Frame, app: &App) {
-    let area = centered_rect(60, 50, f.area());
-
-    let block = Block::default()
-        .title("Sort Options")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Yellow));
-
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(1)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    let options = [
-        "Name A→Z (alphabetically ascending)",
-        "Name Z→A (alphabetically descending)",
-        "Size ↑ (small to large)",
-        "Size ↓ (large to small)",
-        "Date ↑ (oldest to newest)",
-        "Date ↓ (newest to oldest)",
-    ];
-
-    for (i, option) in options.iter().enumerate() {
-        let is_selected = i == app.sort_dialog_selected;
-        let prefix = if is_selected { "● " } else { "○ " };
-        let style = if is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-
-        let text = Paragraph::new(format!("{prefix}{option}")).style(style);
-        f.render_widget(text, chunks[i]);
-    }
-
-    let help = Paragraph::new("↑/↓: Select | Enter: Apply | Esc: Cancel")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center);
-    f.render_widget(help, chunks[7]);
-}
-
-fn draw_profile_config_form(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    let title = Paragraph::new(format!("Profile Configuration: {}", app.profile_form_name))
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    let form_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-        ])
-        .split(chunks[1]);
-
-    // Description field
-    let desc_style = if app.profile_form_field == 0 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let description = Paragraph::new(format!("Description: {}", app.profile_form_description))
-        .style(desc_style)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(description, form_chunks[0]);
-
-    // Render cursor for description field
-    if app.profile_form_field == 0 {
-        let cursor_x =
-            form_chunks[0].x + 1 + "Description: ".len() as u16 + app.profile_form_cursor as u16;
-        let cursor_y = form_chunks[0].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    // Setup Script field
-    let script_style = if app.profile_form_field == 1 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let setup_script = Paragraph::new(format!("Setup Script: {}", app.profile_form_setup_script))
-        .style(script_style)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(setup_script, form_chunks[1]);
-
-    // Render cursor for setup script field
-    if app.profile_form_field == 1 {
-        let cursor_x =
-            form_chunks[1].x + 1 + "Setup Script: ".len() as u16 + app.profile_form_cursor as u16;
-        let cursor_y = form_chunks[1].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    // Buttons
-    let save_style = if app.profile_form_field == 2 {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-    let cancel_style = if app.profile_form_field == 3 {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-
-    let buttons = if app.profile_form_field == 2 {
-        Paragraph::new("[ SAVE ]  Cancel")
-            .style(save_style)
-            .alignment(Alignment::Center)
-    } else if app.profile_form_field == 3 {
-        Paragraph::new("Save  [ CANCEL ]")
-            .style(cancel_style)
-            .alignment(Alignment::Center)
-    } else {
-        Paragraph::new("Save  Cancel").alignment(Alignment::Center)
-    };
-    f.render_widget(buttons, form_chunks[2]);
-
-    let help =
-        Paragraph::new("↑/↓: Navigate | Type: Edit field | Enter: Save/Cancel | Esc: Cancel")
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center)
-            .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
-}
-
-fn draw_config_form(f: &mut Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    let title = Paragraph::new(format!(
-        "Bucket Configuration for Profile: {}",
-        app.config_form_profile
-    ))
-    .style(
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
-    )
-    .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    let form_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .margin(2)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Min(3),
-            Constraint::Length(3),
-        ])
-        .split(chunks[1]);
-
-    // Bucket name field
-    let bucket_style = if app.config_form_field == 0 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let bucket = Paragraph::new(format!("Bucket Name: {}", app.config_form_bucket))
-        .style(bucket_style)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(bucket, form_chunks[0]);
-
-    // Render cursor for bucket name field
-    if app.config_form_field == 0 {
-        let cursor_x =
-            form_chunks[0].x + 1 + "Bucket Name: ".len() as u16 + app.config_form_cursor as u16;
-        let cursor_y = form_chunks[0].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    // Description field
-    let desc_style = if app.config_form_field == 1 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let description = Paragraph::new(format!("Description: {}", app.config_form_description))
-        .style(desc_style)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(description, form_chunks[1]);
-
-    // Render cursor for description field
-    if app.config_form_field == 1 {
-        let cursor_x =
-            form_chunks[1].x + 1 + "Description: ".len() as u16 + app.config_form_cursor as u16;
-        let cursor_y = form_chunks[1].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    // Region field
-    let region_style = if app.config_form_field == 2 {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-    let region = Paragraph::new(format!("Region: {}", app.config_form_region))
-        .style(region_style)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(region, form_chunks[2]);
-
-    // Render cursor for region field
-    if app.config_form_field == 2 {
-        let cursor_x =
-            form_chunks[2].x + 1 + "Region: ".len() as u16 + app.config_form_cursor as u16;
-        let cursor_y = form_chunks[2].y + 1;
-        f.set_cursor_position((cursor_x, cursor_y));
-    }
-
-    // Role ARNs - render each role separately with proper styling
-    let roles_area = form_chunks[3];
-    let role_block = Block::default().borders(Borders::ALL).title("Role ARNs");
-    f.render_widget(role_block, roles_area);
-
-    let inner_area = roles_area.inner(ratatui::layout::Margin {
-        horizontal: 1,
-        vertical: 1,
-    });
-    let role_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(
-            std::iter::repeat_n(Constraint::Length(1), app.config_form_roles.len() + 1)
-                .collect::<Vec<_>>(),
-        )
-        .split(inner_area);
-
-    for (i, role) in app.config_form_roles.iter().enumerate() {
-        let role_style = if app.config_form_field == i + 3 {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        let role_text = format!("[{}] {}", i + 1, role);
-        let role_para = Paragraph::new(role_text).style(role_style);
-        if i < role_chunks.len() {
-            f.render_widget(role_para, role_chunks[i]);
-
-            // Render cursor for active role field
-            if app.config_form_field == i + 3 {
-                let cursor_x = role_chunks[i].x
-                    + format!("[{}] ", i + 1).len() as u16
-                    + app.config_form_cursor as u16;
-                let cursor_y = role_chunks[i].y;
-                f.set_cursor_position((cursor_x, cursor_y));
-            }
-        }
-    }
-
-    // Help text at bottom of roles area
-    if !app.config_form_roles.is_empty() && app.config_form_roles.len() < role_chunks.len() {
-        let help_text = Paragraph::new("Press + to add role, - to remove last")
-            .style(Style::default().fg(Color::Gray));
-        f.render_widget(help_text, role_chunks[app.config_form_roles.len()]);
-    }
-
-    // Buttons
-    let button_field = app.config_form_roles.len() + 3;
-    let save_style = if app.config_form_field == button_field {
-        Style::default()
-            .fg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-    let cancel_style = if app.config_form_field == button_field + 1 {
-        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
-
-    let buttons = if app.config_form_field == button_field {
-        Paragraph::new("[ SAVE ]  Cancel")
-            .style(save_style)
-            .alignment(Alignment::Center)
-    } else if app.config_form_field == button_field + 1 {
-        Paragraph::new("Save  [ CANCEL ]")
-            .style(cancel_style)
-            .alignment(Alignment::Center)
-    } else {
-        Paragraph::new("Save  Cancel").alignment(Alignment::Center)
-    };
-    f.render_widget(buttons, form_chunks[4]);
-
-    let help = Paragraph::new("↑/↓: Navigate | Type: Edit field | +: Add role | -: Remove role | Enter: Save/Cancel | Esc: Cancel")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
-}
-
-fn draw_input_dialog(f: &mut Frame, app: &App) {
-    let area = centered_rect(70, 20, f.area());
-
-    // Calculate cursor position for rendering
-    let cursor_x = area.x + 1 + app.input_cursor_position as u16;
-    let cursor_y = area.y + 1;
-
-    let input = Paragraph::new(app.input_buffer.as_str())
-        .style(Style::default().fg(Color::Yellow))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(app.input_prompt.as_str())
-                .style(Style::default().bg(Color::Black)),
-        );
-
-    f.render_widget(input, area);
-
-    // Set cursor position
-    f.set_cursor_position((cursor_x.min(area.x + area.width - 2), cursor_y));
-}
-
-fn draw_error_overlay(f: &mut Frame, app: &App) {
-    let area = centered_rect(60, 20, f.area());
-
-    // Clear the area first to hide content below
-    f.render_widget(ratatui::widgets::Clear, area);
-
-    let error = Paragraph::new(app.error_message.as_str())
-        .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("⚠ Error")
-                .style(Style::default().bg(Color::Black)),
-        )
-        .wrap(Wrap { trim: false });
-
-    f.render_widget(error, area);
-}
-
-fn draw_success_overlay(f: &mut Frame, app: &App) {
-    let area = centered_rect(60, 20, f.area());
-
-    // Clear the area first to hide content below
-    f.render_widget(ratatui::widgets::Clear, area);
-
-    let success = Paragraph::new(app.success_message.as_str())
-        .style(
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("✓ Success")
-                .style(Style::default().bg(Color::Black)),
-        )
-        .wrap(Wrap { trim: false });
-
-    f.render_widget(success, area);
-}
 
 fn draw_help(f: &mut Frame, _app: &App) {
     let chunks = Layout::default()
@@ -1062,22 +579,3 @@ fn draw_help(f: &mut Frame, _app: &App) {
     f.render_widget(help_paragraph, chunks[1]);
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
-}
