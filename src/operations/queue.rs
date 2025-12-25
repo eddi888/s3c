@@ -1,4 +1,5 @@
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum OperationType {
     Upload,
     Download,
@@ -17,6 +18,7 @@ pub struct FileOperation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum OperationStatus {
     Pending,
     InProgress,

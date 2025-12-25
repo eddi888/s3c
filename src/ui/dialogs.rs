@@ -1,12 +1,12 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin},
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
-use crate::app::App;
 use super::helpers::centered_rect;
+use crate::app::App;
 
 pub fn draw_delete_confirmation(f: &mut Frame, app: &App) {
     let area = centered_rect(70, 30, f.area());
@@ -30,7 +30,7 @@ pub fn draw_delete_confirmation(f: &mut Frame, app: &App) {
         ])
         .split(inner);
 
-    let item_type = if app.delete_confirmation_is_dir {
+    let item_type = if app.delete_confirmation.is_dir {
         "directory"
     } else {
         "file"
@@ -44,18 +44,18 @@ pub fn draw_delete_confirmation(f: &mut Frame, app: &App) {
         .alignment(Alignment::Center);
     f.render_widget(question, chunks[0]);
 
-    let path_text = Paragraph::new(app.delete_confirmation_path.clone())
+    let path_text = Paragraph::new(app.delete_confirmation.path.clone())
         .style(Style::default().fg(Color::Cyan))
         .alignment(Alignment::Center);
     f.render_widget(path_text, chunks[1]);
 
-    let delete_style = if app.delete_confirmation_button == 0 {
+    let delete_style = if app.delete_confirmation.button == 0 {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Red)
     };
 
-    let cancel_style = if app.delete_confirmation_button == 1 {
+    let cancel_style = if app.delete_confirmation.button == 1 {
         Style::default()
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD)
@@ -63,7 +63,7 @@ pub fn draw_delete_confirmation(f: &mut Frame, app: &App) {
         Style::default().fg(Color::Green)
     };
 
-    let buttons = if app.delete_confirmation_button == 0 {
+    let buttons = if app.delete_confirmation.button == 0 {
         Paragraph::new("[ DELETE ]  Cancel")
             .style(delete_style)
             .alignment(Alignment::Center)
@@ -116,7 +116,7 @@ pub fn draw_sort_dialog(f: &mut Frame, app: &App) {
     ];
 
     for (i, option) in options.iter().enumerate() {
-        let is_selected = i == app.sort_dialog_selected;
+        let is_selected = i == app.sort_dialog.selected;
         let prefix = if is_selected { "● " } else { "○ " };
         let style = if is_selected {
             Style::default()
@@ -146,7 +146,7 @@ pub fn draw_profile_config_form(f: &mut Frame, app: &App) {
         ])
         .split(f.area());
 
-    let title = Paragraph::new(format!("Profile Configuration: {}", app.profile_form_name))
+    let title = Paragraph::new(format!("Profile Configuration: {}", app.profile_form.name))
         .style(
             Style::default()
                 .fg(Color::Cyan)
@@ -166,62 +166,62 @@ pub fn draw_profile_config_form(f: &mut Frame, app: &App) {
         ])
         .split(chunks[1]);
 
-    let desc_style = if app.profile_form_field == 0 {
+    let desc_style = if app.profile_form.field == 0 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
-    let description = Paragraph::new(format!("Description: {}", app.profile_form_description))
+    let description = Paragraph::new(format!("Description: {}", app.profile_form.description))
         .style(desc_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(description, form_chunks[0]);
 
-    if app.profile_form_field == 0 {
+    if app.profile_form.field == 0 {
         let cursor_x =
-            form_chunks[0].x + 1 + "Description: ".len() as u16 + app.profile_form_cursor as u16;
+            form_chunks[0].x + 1 + "Description: ".len() as u16 + app.profile_form.cursor as u16;
         let cursor_y = form_chunks[0].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let script_style = if app.profile_form_field == 1 {
+    let script_style = if app.profile_form.field == 1 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
-    let setup_script = Paragraph::new(format!("Setup Script: {}", app.profile_form_setup_script))
+    let setup_script = Paragraph::new(format!("Setup Script: {}", app.profile_form.setup_script))
         .style(script_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(setup_script, form_chunks[1]);
 
-    if app.profile_form_field == 1 {
+    if app.profile_form.field == 1 {
         let cursor_x =
-            form_chunks[1].x + 1 + "Setup Script: ".len() as u16 + app.profile_form_cursor as u16;
+            form_chunks[1].x + 1 + "Setup Script: ".len() as u16 + app.profile_form.cursor as u16;
         let cursor_y = form_chunks[1].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let save_style = if app.profile_form_field == 2 {
+    let save_style = if app.profile_form.field == 2 {
         Style::default()
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Green)
     };
-    let cancel_style = if app.profile_form_field == 3 {
+    let cancel_style = if app.profile_form.field == 3 {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Red)
     };
 
-    let buttons = if app.profile_form_field == 2 {
+    let buttons = if app.profile_form.field == 2 {
         Paragraph::new("[ SAVE ]  Cancel")
             .style(save_style)
             .alignment(Alignment::Center)
-    } else if app.profile_form_field == 3 {
+    } else if app.profile_form.field == 3 {
         Paragraph::new("Save  [ CANCEL ]")
             .style(cancel_style)
             .alignment(Alignment::Center)
@@ -250,7 +250,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
 
     let title = Paragraph::new(format!(
         "Bucket Configuration for Profile: {}",
-        app.config_form_profile
+        app.config_form.profile
     ))
     .style(
         Style::default()
@@ -273,59 +273,59 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         ])
         .split(chunks[1]);
 
-    let bucket_style = if app.config_form_field == 0 {
+    let bucket_style = if app.config_form.field == 0 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
-    let bucket = Paragraph::new(format!("Bucket Name: {}", app.config_form_bucket))
+    let bucket = Paragraph::new(format!("Bucket Name: {}", app.config_form.bucket))
         .style(bucket_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(bucket, form_chunks[0]);
 
-    if app.config_form_field == 0 {
+    if app.config_form.field == 0 {
         let cursor_x =
-            form_chunks[0].x + 1 + "Bucket Name: ".len() as u16 + app.config_form_cursor as u16;
+            form_chunks[0].x + 1 + "Bucket Name: ".len() as u16 + app.config_form.cursor as u16;
         let cursor_y = form_chunks[0].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let desc_style = if app.config_form_field == 1 {
+    let desc_style = if app.config_form.field == 1 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
-    let description = Paragraph::new(format!("Description: {}", app.config_form_description))
+    let description = Paragraph::new(format!("Description: {}", app.config_form.description))
         .style(desc_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(description, form_chunks[1]);
 
-    if app.config_form_field == 1 {
+    if app.config_form.field == 1 {
         let cursor_x =
-            form_chunks[1].x + 1 + "Description: ".len() as u16 + app.config_form_cursor as u16;
+            form_chunks[1].x + 1 + "Description: ".len() as u16 + app.config_form.cursor as u16;
         let cursor_y = form_chunks[1].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let region_style = if app.config_form_field == 2 {
+    let region_style = if app.config_form.field == 2 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };
-    let region = Paragraph::new(format!("Region: {}", app.config_form_region))
+    let region = Paragraph::new(format!("Region: {}", app.config_form.region))
         .style(region_style)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(region, form_chunks[2]);
 
-    if app.config_form_field == 2 {
+    if app.config_form.field == 2 {
         let cursor_x =
-            form_chunks[2].x + 1 + "Region: ".len() as u16 + app.config_form_cursor as u16;
+            form_chunks[2].x + 1 + "Region: ".len() as u16 + app.config_form.cursor as u16;
         let cursor_y = form_chunks[2].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
@@ -341,13 +341,13 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     let role_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(
-            std::iter::repeat_n(Constraint::Length(1), app.config_form_roles.len() + 1)
+            std::iter::repeat_n(Constraint::Length(1), app.config_form.roles.len() + 1)
                 .collect::<Vec<_>>(),
         )
         .split(inner_area);
 
-    for (i, role) in app.config_form_roles.iter().enumerate() {
-        let role_style = if app.config_form_field == i + 3 {
+    for (i, role) in app.config_form.roles.iter().enumerate() {
+        let role_style = if app.config_form.field == i + 3 {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
@@ -359,41 +359,41 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         if i < role_chunks.len() {
             f.render_widget(role_para, role_chunks[i]);
 
-            if app.config_form_field == i + 3 {
+            if app.config_form.field == i + 3 {
                 let cursor_x = role_chunks[i].x
                     + format!("[{}] ", i + 1).len() as u16
-                    + app.config_form_cursor as u16;
+                    + app.config_form.cursor as u16;
                 let cursor_y = role_chunks[i].y;
                 f.set_cursor_position((cursor_x, cursor_y));
             }
         }
     }
 
-    if !app.config_form_roles.is_empty() && app.config_form_roles.len() < role_chunks.len() {
+    if !app.config_form.roles.is_empty() && app.config_form.roles.len() < role_chunks.len() {
         let help_text = Paragraph::new("Press + to add role, - to remove last")
             .style(Style::default().fg(Color::Gray));
-        f.render_widget(help_text, role_chunks[app.config_form_roles.len()]);
+        f.render_widget(help_text, role_chunks[app.config_form.roles.len()]);
     }
 
-    let button_field = app.config_form_roles.len() + 3;
-    let save_style = if app.config_form_field == button_field {
+    let button_field = app.config_form.roles.len() + 3;
+    let save_style = if app.config_form.field == button_field {
         Style::default()
             .fg(Color::Green)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Green)
     };
-    let cancel_style = if app.config_form_field == button_field + 1 {
+    let cancel_style = if app.config_form.field == button_field + 1 {
         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Red)
     };
 
-    let buttons = if app.config_form_field == button_field {
+    let buttons = if app.config_form.field == button_field {
         Paragraph::new("[ SAVE ]  Cancel")
             .style(save_style)
             .alignment(Alignment::Center)
-    } else if app.config_form_field == button_field + 1 {
+    } else if app.config_form.field == button_field + 1 {
         Paragraph::new("Save  [ CANCEL ]")
             .style(cancel_style)
             .alignment(Alignment::Center)
@@ -412,15 +412,15 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
 pub fn draw_input_dialog(f: &mut Frame, app: &App) {
     let area = centered_rect(70, 20, f.area());
 
-    let cursor_x = area.x + 1 + app.input_cursor_position as u16;
+    let cursor_x = area.x + 1 + app.input.cursor_position as u16;
     let cursor_y = area.y + 1;
 
-    let input = Paragraph::new(app.input_buffer.as_str())
+    let input = Paragraph::new(app.input.buffer.as_str())
         .style(Style::default().fg(Color::Yellow))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(app.input_prompt.as_str())
+                .title(app.input.prompt.as_str())
                 .style(Style::default().bg(Color::Black)),
         );
 

@@ -145,8 +145,10 @@ impl S3Manager {
         Ok(objects)
     }
 
+    #[allow(dead_code)]
     pub async fn download_file(&self, key: &str, local_path: &Path) -> Result<()> {
-        self.download_file_with_progress(key, local_path, None).await
+        self.download_file_with_progress(key, local_path, None)
+            .await
     }
 
     pub async fn download_file_with_progress(
@@ -186,6 +188,7 @@ impl S3Manager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn upload_file(&self, local_path: &Path, key: &str) -> Result<()> {
         self.upload_file_with_progress(local_path, key, None).await
     }
@@ -337,7 +340,8 @@ impl S3Manager {
 
     #[allow(dead_code)]
     pub async fn move_object(&self, source_key: &str, dest_key: &str) -> Result<()> {
-        self.move_object_with_progress(source_key, dest_key, None).await
+        self.move_object_with_progress(source_key, dest_key, None)
+            .await
     }
 
     pub async fn move_object_with_progress(
@@ -389,7 +393,8 @@ impl S3Manager {
 
     #[allow(dead_code)]
     pub async fn rename_object(&self, old_key: &str, new_key: &str) -> Result<()> {
-        self.rename_object_with_progress(old_key, new_key, None).await
+        self.rename_object_with_progress(old_key, new_key, None)
+            .await
     }
 
     pub async fn rename_object_with_progress(
@@ -398,7 +403,8 @@ impl S3Manager {
         new_key: &str,
         progress_callback: Option<ProgressCallback>,
     ) -> Result<()> {
-        self.move_object_with_progress(old_key, new_key, progress_callback).await
+        self.move_object_with_progress(old_key, new_key, progress_callback)
+            .await
     }
 
     pub async fn get_object_size(&self, key: &str) -> Result<i64> {

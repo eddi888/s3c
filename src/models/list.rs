@@ -1,5 +1,5 @@
-use crate::config::BucketConfig;
-use crate::s3_ops::S3Object;
+use crate::models::config::BucketConfig;
+use crate::operations::s3::S3Object;
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
 

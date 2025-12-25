@@ -2,17 +2,17 @@ use super::dialogs::{
     draw_config_form, draw_delete_confirmation, draw_error_overlay, draw_input_dialog,
     draw_profile_config_form, draw_sort_dialog, draw_success_overlay,
 };
-use super::helpers::{centered_rect, format_size, truncate_string};
+use super::panels::{draw_file_preview, draw_panel};
 use super::widgets::draw_file_operation_queue;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 
-use crate::app::{ActivePanel, App, Panel, PanelType, Screen};
+use crate::app::{ActivePanel, App, PanelType, Screen};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     // Draw the base screen
@@ -39,14 +39,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_dual_panel(f: &mut Frame, app: &mut App) {
     // Check if queue is active to adjust layout
     let has_queue = app.file_operation_queue.is_some();
-    
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints(if has_queue {
             vec![
                 Constraint::Length(3),
                 Constraint::Min(0),
-                Constraint::Length(4),  // Queue area
+                Constraint::Length(4), // Queue area
                 Constraint::Length(1),
             ]
         } else {
@@ -209,330 +209,6 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
     f.render_widget(help, footer_chunk);
 }
 
-fn draw_panel(
-    f: &mut Frame,
-    config_manager: &crate::config::ConfigManager,
-    area: Rect,
-    panel: &mut Panel,
-    is_active: bool,
-) {
-    let border_style = if is_active {
-        Style::default().fg(Color::Yellow)
-    } else {
-        Style::default().fg(Color::Gray)
-    };
-
-    let (title, items) = match &panel.panel_type {
-        PanelType::ProfileList => {
-            let title = "AWS Profiles".to_string();
-            let items: Vec<ListItem> = panel
-                .list_model
-                .iter()
-                .enumerate()
-                .map(|(i, item)| {
-                    use crate::list_model::ItemData;
-
-                    let profile_name = match &item.data {
-                        ItemData::Profile(profile) => profile,
-                        _ => &item.name,
-                    };
-
-                    let description = config_manager
-                        .get_profile_config(profile_name)
-                        .and_then(|p| p.description.as_ref());
-
-                    let display = if let Some(desc) = description {
-                        format!("👤 {profile_name} ({desc})")
-                    } else {
-                        format!("👤 {profile_name}")
-                    };
-
-                    let style = if i == panel.selected_index && is_active {
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                    };
-                    ListItem::new(display).style(style)
-                })
-                .collect();
-            (title, items)
-        }
-        PanelType::BucketList { profile } => {
-            let title = format!("Buckets for: {profile}");
-            let items: Vec<ListItem> = panel
-                .list_model
-                .iter()
-                .enumerate()
-                .map(|(i, item)| {
-                    use crate::list_model::{ItemData, ItemType};
-
-                    let display = match &item.item_type {
-                        ItemType::ParentDir => "📁 ..".to_string(),
-                        _ => {
-                            if let ItemData::Bucket(bucket_config) = &item.data {
-                                match (
-                                    &bucket_config.description,
-                                    bucket_config.role_chain.is_empty(),
-                                ) {
-                                    (Some(desc), true) => {
-                                        format!("🪣 {} ({})", bucket_config.name, desc)
-                                    }
-                                    (Some(desc), false) => format!(
-                                        "🪣 {} ({}) [{}]",
-                                        bucket_config.name,
-                                        desc,
-                                        bucket_config.role_chain.len()
-                                    ),
-                                    (None, true) => format!("🪣 {}", bucket_config.name),
-                                    (None, false) => format!(
-                                        "🪣 {} [{}]",
-                                        bucket_config.name,
-                                        bucket_config.role_chain.len()
-                                    ),
-                                }
-                            } else {
-                                item.name.clone()
-                            }
-                        }
-                    };
-
-                    let style = if i == panel.selected_index && is_active {
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::BOLD)
-                    } else if matches!(item.item_type, ItemType::ParentDir) {
-                        Style::default().fg(Color::Blue)
-                    } else {
-                        Style::default()
-                    };
-                    ListItem::new(display).style(style)
-                })
-                .collect();
-            (title, items)
-        }
-        PanelType::S3Browser {
-            profile: _,
-            bucket,
-            prefix,
-        } => {
-            let title = format!("S3: {bucket}/{prefix}");
-            let mut items: Vec<ListItem> = Vec::new();
-
-            items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
-                use crate::list_model::ItemType;
-
-                let (icon_name, size_str, modified_str) = match &item.item_type {
-                    ItemType::ParentDir => ("📁 ..".to_string(), "".to_string(), "".to_string()),
-                    ItemType::Directory => {
-                        let display_name = item.name.strip_prefix(prefix).unwrap_or(&item.name);
-                        (
-                            format!("📁 {display_name}"),
-                            "<DIR>".to_string(),
-                            "".to_string(),
-                        )
-                    }
-                    ItemType::File => {
-                        let display_name = item.name.strip_prefix(prefix).unwrap_or(&item.name);
-                        let size_str = item.size.map(format_size).unwrap_or_default();
-                        let modified_str = item
-                            .modified
-                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_default();
-                        (format!("📄 {display_name}"), size_str, modified_str)
-                    }
-                };
-
-                // MC-style: Name (40 chars) | Size (10 chars) | Modified (16 chars)
-                let display = format!(
-                    "{:<40} {:>10}  {}",
-                    truncate_string(&icon_name, 40),
-                    size_str,
-                    modified_str
-                );
-
-                let style = if i == panel.selected_index && is_active {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
-                    Style::default().fg(Color::Blue)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(display).style(style)
-            }));
-            (title, items)
-        }
-        PanelType::LocalFilesystem { path } => {
-            let title = format!("Local: {}", path.display());
-            let mut items: Vec<ListItem> = Vec::new();
-
-            items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
-                use crate::list_model::ItemType;
-
-                let (icon_name, size_str, modified_str) = match &item.item_type {
-                    ItemType::ParentDir => ("📁 ..".to_string(), "".to_string(), "".to_string()),
-                    ItemType::Directory => (
-                        format!("📁 {}", item.name),
-                        "<DIR>".to_string(),
-                        "".to_string(),
-                    ),
-                    ItemType::File => {
-                        let size_str = item.size.map(format_size).unwrap_or_default();
-                        let modified_str = item
-                            .modified
-                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
-                            .unwrap_or_default();
-                        (format!("📄 {}", item.name), size_str, modified_str)
-                    }
-                };
-
-                // MC-style: Name (40 chars) | Size (10 chars) | Modified (16 chars)
-                let display = format!(
-                    "{:<40} {:>10}  {}",
-                    truncate_string(&icon_name, 40),
-                    size_str,
-                    modified_str
-                );
-
-                let style = if i == panel.selected_index && is_active {
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD)
-                } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
-                    Style::default().fg(Color::Blue)
-                } else {
-                    Style::default()
-                };
-                ListItem::new(display).style(style)
-            }));
-            (title, items)
-        }
-    };
-
-    // Calculate scrolling based on visible area
-    let visible_height = area.height.saturating_sub(2) as usize; // Subtract borders
-    panel.visible_height = visible_height; // Update panel's visible_height
-    let total_items = items.len();
-
-    // Calculate scroll offset to keep selected item visible
-    let scroll_offset = if total_items > visible_height {
-        let selected = panel.selected_index;
-        if selected < panel.scroll_offset {
-            selected
-        } else if selected >= panel.scroll_offset + visible_height {
-            selected.saturating_sub(visible_height - 1)
-        } else {
-            panel.scroll_offset
-        }
-    } else {
-        0
-    };
-
-    // Slice items to only show visible portion
-    let visible_items: Vec<ListItem> = items
-        .into_iter()
-        .skip(scroll_offset)
-        .take(visible_height)
-        .collect();
-
-    // Add filter display to title if filter is active
-    let title_with_filter = if let Some(filter_text) = panel.list_model.get_filter_display() {
-        format!("{title} {filter_text} ")
-    } else {
-        title
-    };
-
-    let list = List::new(visible_items).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(title_with_filter)
-            .border_style(border_style),
-    );
-
-    f.render_widget(list, area);
-}
-
-fn draw_file_preview(f: &mut Frame, app: &App) {
-    // Clear the entire screen to hide content below
-    f.render_widget(ratatui::widgets::Clear, f.area());
-
-    let base_block = Block::default()
-        .borders(Borders::NONE)
-        .style(Style::default().bg(Color::Black));
-    f.render_widget(base_block, f.area());
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    let line_count = app.preview_content.lines().count();
-
-    // Format file size
-    let file_size_str = format_size(app.preview_file_size as u64);
-    let loaded_size_str = format_size(app.preview_byte_offset as u64);
-
-    let title_text = if app.preview_is_s3 && app.preview_byte_offset < app.preview_file_size {
-        format!(
-            "File Preview: {} ({} of {} loaded) - Line {}/{}+",
-            app.preview_filename,
-            loaded_size_str,
-            file_size_str,
-            app.preview_scroll_offset + 1,
-            line_count
-        )
-    } else {
-        format!(
-            "File Preview: {} ({}) - Line {}/{}",
-            app.preview_filename,
-            file_size_str,
-            app.preview_scroll_offset + 1,
-            line_count
-        )
-    };
-
-    let title = Paragraph::new(title_text)
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    // Clear content area before rendering to prevent scroll artifacts
-    f.render_widget(ratatui::widgets::Clear, chunks[1]);
-
-    // Convert tabs to spaces to ensure black background rendering
-    let content_text = app.preview_content.replace('\t', "    ");
-
-    let content = Paragraph::new(content_text)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black)),
-        )
-        .style(Style::default().bg(Color::Black))
-        .wrap(Wrap { trim: false })
-        .scroll((app.preview_scroll_offset as u16, 0));
-    f.render_widget(content, chunks[1]);
-
-    let help = Paragraph::new("↑/↓: Scroll | PgUp/PgDn: Page | Home/End: Jump | ESC/q: Close")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
-}
-
-
 fn draw_help(f: &mut Frame, _app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -578,4 +254,3 @@ fn draw_help(f: &mut Frame, _app: &App) {
         .wrap(Wrap { trim: false });
     f.render_widget(help_paragraph, chunks[1]);
 }
-

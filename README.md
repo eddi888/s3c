@@ -328,13 +328,29 @@ Konfiguration in s3c:
 
 ## Architektur
 
+### Design Pattern: The Elm Architecture (TEA)
+
+s3c folgt **The Elm Architecture (TEA)** für eine saubere, wartbare Codebase:
+
+- **Model** (`app/state.rs`) - Anwendungszustand und Datenmodelle
+- **Message** (`message.rs`) - Alle möglichen Aktionen als Enum
+- **Update** (`app/update.rs`) - Zentrale State-Update-Logik
+- **View** (`ui/`) - Reine Rendering-Funktionen
+
+**Vorteile:**
+- ✅ Vorhersagbarer State-Flow
+- ✅ Einfaches Testing
+- ✅ Klare Trennung von Logik und UI
+- ✅ Erweiterbar für zukünftige Features
+
 ### Module
 
-- **`src/main.rs`** - Event-Loop und Input-Handler
-- **`src/app.rs`** - Anwendungslogik und State-Management
-- **`src/config.rs`** - AWS Profile und Bucket-Konfiguration
-- **`src/s3_ops.rs`** - S3 API-Operationen
-- **`src/ui.rs`** - TUI-Komponenten und Rendering
+- **`src/main.rs`** - Application Setup und Teardown
+- **`src/models/`** - Datenmodelle (Config, List)
+- **`src/app/`** - TEA Core (State, Update, Navigation)
+- **`src/operations/`** - Business Operations (Run-Loop, S3, File, etc.)
+- **`src/handlers/`** - Input-zu-Message Konvertierung
+- **`src/ui/`** - TUI-Komponenten und Rendering
 
 ### Technologie-Stack
 

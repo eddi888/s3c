@@ -5,8 +5,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::App;
 use super::helpers::format_size;
+use crate::app::App;
 
 pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref operation) = app.file_operation_queue {
@@ -21,10 +21,7 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(0)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
-            ])
+            .constraints([Constraint::Length(1), Constraint::Length(1)])
             .split(inner);
 
         // Operation info line
@@ -70,8 +67,8 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
 
         // Progress bar
         let progress_bar = draw_progress_bar(percentage, chunks[1].width as usize);
-        let progress = Paragraph::new(progress_bar)
-            .style(Style::default().fg(Color::Cyan).bg(Color::Black));
+        let progress =
+            Paragraph::new(progress_bar).style(Style::default().fg(Color::Cyan).bg(Color::Black));
         f.render_widget(progress, chunks[1]);
     }
 }
@@ -79,11 +76,11 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
 fn draw_progress_bar(percentage: u16, width: usize) -> String {
     let filled_width = ((width as f64 * percentage as f64) / 100.0) as usize;
     let empty_width = width.saturating_sub(filled_width);
-    
+
     let filled = "█".repeat(filled_width);
     let empty = "░".repeat(empty_width);
-    
-    format!("{}{}", filled, empty)
+
+    format!("{filled}{empty}")
 }
 
 fn truncate_filename(path: &str, max_len: usize) -> String {
@@ -93,10 +90,6 @@ fn truncate_filename(path: &str, max_len: usize) -> String {
         // Show start and end of filename
         let start_len = max_len / 2 - 1;
         let end_len = max_len / 2 - 2;
-        format!(
-            "{}...{}",
-            &path[..start_len],
-            &path[path.len() - end_len..]
-        )
+        format!("{}...{}", &path[..start_len], &path[path.len() - end_len..])
     }
 }
