@@ -75,6 +75,7 @@ pub struct App {
     pub prev_screen: Option<Screen>,
     pub should_quit: bool,
     pub advanced_mode: bool,
+    pub app_title: String,
 
     // UI Messages
     pub error_message: String,
@@ -141,6 +142,7 @@ impl App {
             prev_screen: None,
             should_quit: false,
             advanced_mode: false,
+            app_title: "s3c - S3 Commander".to_string(),
             error_message: String::new(),
             success_message: String::new(),
             config_form: ConfigFormState::default(),

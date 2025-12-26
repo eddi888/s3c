@@ -60,7 +60,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
         })
         .split(f.area());
 
-    let title = Paragraph::new("s3c - S3 Commander")
+    let title = Paragraph::new(app.app_title.as_str())
         .style(
             Style::default()
                 .fg(Color::Cyan)
@@ -217,7 +217,8 @@ fn draw_help(f: &mut Frame, _app: &App) {
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(f.area());
 
-    let title = Paragraph::new("S3 Commander - Help")
+    let help_title = format!("{} - Help", _app.app_title);
+    let title = Paragraph::new(help_title.as_str())
         .style(
             Style::default()
                 .fg(Color::Cyan)
