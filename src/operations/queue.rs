@@ -23,6 +23,7 @@ pub enum OperationStatus {
     Pending,
     InProgress,
     Completed,
+    Cancelled,
     Failed(String),
 }
 

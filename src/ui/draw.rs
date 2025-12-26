@@ -2,7 +2,8 @@ use super::dialogs::{
     draw_config_form, draw_delete_confirmation, draw_error_overlay, draw_input_dialog,
     draw_profile_config_form, draw_sort_dialog, draw_success_overlay,
 };
-use super::panels::{draw_file_preview, draw_panel};
+use super::panels::draw_panel;
+use super::preview::{draw_file_content_preview, draw_image_preview};
 use super::widgets::draw_file_operation_queue;
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout},
@@ -22,7 +23,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::ProfileConfigForm => draw_profile_config_form(f, app),
         Screen::SortDialog => draw_sort_dialog(f, app),
         Screen::DeleteConfirmation => draw_delete_confirmation(f, app),
-        Screen::FilePreview => draw_file_preview(f, app),
+        Screen::FileContentPreview => draw_file_content_preview(f, app),
+        Screen::ImagePreview => draw_image_preview(f, app),
         Screen::Input => draw_input_dialog(f, app),
         Screen::Help => draw_help(f, app),
     }

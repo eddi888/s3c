@@ -12,6 +12,8 @@ pub struct BucketConfig {
     pub region: String,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub base_prefix: Option<String>,
 }
 
 fn default_region() -> String {
@@ -108,12 +110,14 @@ impl ConfigManager {
         role_chain: Vec<String>,
         region: String,
         description: Option<String>,
+        base_prefix: Option<String>,
     ) -> Result<()> {
         let bucket_config = BucketConfig {
             name: bucket.clone(),
             role_chain,
             region,
             description,
+            base_prefix,
         };
 
         if let Some(profile) = self
@@ -122,7 +126,10 @@ impl ConfigManager {
             .iter_mut()
             .find(|p| p.name == profile_name)
         {
-            if !profile.buckets.iter().any(|b| b.name == bucket) {
+            // Replace existing bucket or add new one
+            if let Some(existing) = profile.buckets.iter_mut().find(|b| b.name == bucket) {
+                *existing = bucket_config;
+            } else {
                 profile.buckets.push(bucket_config);
             }
         } else {

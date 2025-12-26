@@ -15,7 +15,8 @@ pub fn key_to_message(app: &App, key: KeyCode, modifiers: KeyModifiers) -> Optio
         Screen::ProfileConfigForm => profile_form_key_to_message(app, key),
         Screen::SortDialog => sort_dialog_key_to_message(key),
         Screen::DeleteConfirmation => delete_confirmation_key_to_message(key),
-        Screen::FilePreview => file_preview_key_to_message(key),
+        Screen::FileContentPreview => file_content_preview_key_to_message(key),
+        Screen::ImagePreview => image_preview_key_to_message(key),
         Screen::Input => input_key_to_message(key, modifiers),
         Screen::Help => Some(Message::GoBack),
     }
@@ -29,6 +30,14 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
     };
 
     match key {
+        KeyCode::Char('x') | KeyCode::Char('X') => {
+            // Cancel transfer if one is running
+            if app.background_transfer_task.is_some() {
+                Some(Message::CancelTransfer)
+            } else {
+                None
+            }
+        }
         KeyCode::Char('q') | KeyCode::F(10) => Some(Message::Quit),
         KeyCode::Char('?') | KeyCode::F(1) => Some(Message::ShowHelp),
         KeyCode::F(12) => Some(Message::ToggleLocalFilesystem),
@@ -129,7 +138,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::End => Some(Message::ConfigFormEnd),
         KeyCode::Delete => Some(Message::ConfigFormDelete),
         KeyCode::Char('+') => {
-            let button_field = app.config_form.roles.len() + 3;
+            let button_field = app.config_form.roles.len() + 4;
             if app.config_form.field >= button_field {
                 Some(Message::ConfigFormAddRole)
             } else {
@@ -137,7 +146,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
             }
         }
         KeyCode::Char('-') => {
-            let button_field = app.config_form.roles.len() + 3;
+            let button_field = app.config_form.roles.len() + 4;
             if app.config_form.field >= button_field {
                 Some(Message::ConfigFormRemoveRole)
             } else {
@@ -147,7 +156,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::Char(c) => Some(Message::ConfigFormChar { c }),
         KeyCode::Backspace => Some(Message::ConfigFormBackspace),
         KeyCode::Enter => {
-            let button_field = app.config_form.roles.len() + 3;
+            let button_field = app.config_form.roles.len() + 4;
             if app.config_form.field == button_field {
                 Some(Message::SaveConfigForm)
             } else if app.config_form.field == button_field + 1 {
@@ -161,14 +170,21 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
     }
 }
 
-fn file_preview_key_to_message(key: KeyCode) -> Option<Message> {
+fn file_content_preview_key_to_message(key: KeyCode) -> Option<Message> {
     match key {
-        KeyCode::Up => Some(Message::PreviewScrollUp),
-        KeyCode::Down => Some(Message::PreviewScrollDown),
-        KeyCode::PageUp => Some(Message::PreviewPageUp),
-        KeyCode::PageDown => Some(Message::PreviewPageDown),
-        KeyCode::Home => Some(Message::PreviewHome),
-        KeyCode::End => Some(Message::PreviewEnd),
+        KeyCode::Up => Some(Message::FilePreviewUp),
+        KeyCode::Down => Some(Message::FilePreviewDown),
+        KeyCode::PageUp => Some(Message::FilePreviewPageUp),
+        KeyCode::PageDown => Some(Message::FilePreviewPageDown),
+        KeyCode::Home => Some(Message::FilePreviewHome),
+        KeyCode::End => Some(Message::FilePreviewEnd),
+        KeyCode::Esc | KeyCode::Char('q') => Some(Message::GoBack),
+        _ => None,
+    }
+}
+
+fn image_preview_key_to_message(key: KeyCode) -> Option<Message> {
+    match key {
         KeyCode::Esc | KeyCode::Char('q') => Some(Message::GoBack),
         _ => None,
     }

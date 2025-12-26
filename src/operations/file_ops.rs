@@ -50,43 +50,55 @@ impl App {
                     // Store in queue for UI display
                     self.file_operation_queue = Some((*operation.lock().await).clone());
 
-                    if let Some(s3_manager) = &source_panel.s3_manager {
-                        // Create progress callback that updates the queue
-                        let op_clone = operation.clone();
+                    // Clone s3_manager to avoid borrow conflicts
+                    let s3_manager = source_panel.s3_manager.clone();
+
+                    if let Some(s3_manager) = s3_manager {
+                        // Use AtomicU64 for thread-safe progress tracking
+                        let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+                        let transferred_clone = transferred_counter.clone();
+
                         let progress_callback: ProgressCallback =
                             Arc::new(Mutex::new(move |transferred: u64| {
-                                if let Ok(mut op) = op_clone.try_lock() {
-                                    op.transferred = transferred;
-                                }
+                                transferred_clone
+                                    .store(transferred, std::sync::atomic::Ordering::Relaxed);
                             }));
 
-                        match s3_manager
-                            .download_file_with_progress(&key, &local_path, Some(progress_callback))
-                            .await
-                        {
-                            Ok(_) => {
-                                operation.lock().await.status = OperationStatus::Completed;
-                                self.file_operation_queue = Some((*operation.lock().await).clone());
-                                self.show_success(&format!("Downloaded: {filename}"));
-                                crate::app::navigation::reload_local_files(self).await?;
-                            }
-                            Err(e) => {
-                                operation.lock().await.status =
-                                    OperationStatus::Failed(format!("{e}"));
-                                self.file_operation_queue = Some((*operation.lock().await).clone());
-                                let error_msg = format!("{e}");
-                                let path_display = local_path.display();
-                                if error_msg.contains("Permission denied")
-                                    || error_msg.contains("permission denied")
-                                {
-                                    self.show_error(&format!(
-                                        "Permission denied: Cannot write to '{path_display}'"
-                                    ));
-                                } else {
-                                    self.show_error(&format!("Download failed: {e}"));
+                        // Spawn download in background task
+                        let key_clone = key.clone();
+                        let local_path_clone = local_path.clone();
+                        let operation_clone = operation.clone();
+
+                        let task_handle = tokio::spawn(async move {
+                            let result = s3_manager
+                                .download_file_with_progress(
+                                    &key_clone,
+                                    &local_path_clone,
+                                    Some(progress_callback),
+                                )
+                                .await;
+
+                            // Update operation status
+                            match result {
+                                Ok(_) => {
+                                    operation_clone.lock().await.status =
+                                        OperationStatus::Completed;
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    operation_clone.lock().await.status =
+                                        OperationStatus::Failed(format!("{e}"));
+                                    Err(anyhow::anyhow!("Download failed: {e}"))
                                 }
                             }
-                        }
+                        });
+
+                        // Store background task for UI to poll
+                        self.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+                            task_handle,
+                            progress_counter: transferred_counter,
+                            operation,
+                        });
                     }
                 }
             }

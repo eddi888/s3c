@@ -25,7 +25,7 @@ pub async fn handle_input_submit(app: &mut App) -> Result<()> {
             local_file_name,
         } => {
             let path = local_file_path.clone();
-            let name = local_file_name.clone();
+            let _name = local_file_name.clone();
             let s3_key = app.input.buffer.clone();
             app.input.mode = InputMode::None;
 
@@ -47,33 +47,54 @@ pub async fn handle_input_submit(app: &mut App) -> Result<()> {
 
             app.file_operation_queue = Some((*operation.lock().await).clone());
 
-            if let Some(s3_manager) = &app.get_inactive_panel().s3_manager {
-                let op_clone = operation.clone();
+            // Clone s3_manager to avoid borrow conflicts
+            let s3_manager = app.get_inactive_panel().s3_manager.clone();
+
+            if let Some(s3_manager) = s3_manager {
+                // Use AtomicU64 for thread-safe progress tracking
+                let transferred_counter = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+                let transferred_clone = transferred_counter.clone();
+
                 let progress_callback: crate::operations::s3::ProgressCallback =
                     std::sync::Arc::new(tokio::sync::Mutex::new(move |transferred: u64| {
-                        if let Ok(mut op) = op_clone.try_lock() {
-                            op.transferred = transferred;
-                        }
+                        transferred_clone.store(transferred, std::sync::atomic::Ordering::Relaxed);
                     }));
 
-                match s3_manager
-                    .upload_file_with_progress(&path, &s3_key, Some(progress_callback))
-                    .await
-                {
-                    Ok(_) => {
-                        operation.lock().await.status =
-                            crate::operations::OperationStatus::Completed;
-                        app.file_operation_queue = Some((*operation.lock().await).clone());
-                        app.show_success(&format!("Uploaded: {name}"));
-                        crate::app::navigation::reload_s3_browser(app).await?;
+                // Spawn upload in background task
+                let path_clone = path.clone();
+                let s3_key_clone = s3_key.clone();
+                let operation_clone = operation.clone();
+
+                let task_handle = tokio::spawn(async move {
+                    let result = s3_manager
+                        .upload_file_with_progress(
+                            &path_clone,
+                            &s3_key_clone,
+                            Some(progress_callback),
+                        )
+                        .await;
+
+                    // Update operation status
+                    match result {
+                        Ok(_) => {
+                            operation_clone.lock().await.status =
+                                crate::operations::OperationStatus::Completed;
+                            Ok(())
+                        }
+                        Err(e) => {
+                            operation_clone.lock().await.status =
+                                crate::operations::OperationStatus::Failed(format!("{e}"));
+                            Err(anyhow::anyhow!("Upload failed: {e}"))
+                        }
                     }
-                    Err(e) => {
-                        operation.lock().await.status =
-                            crate::operations::OperationStatus::Failed(format!("{e}"));
-                        app.file_operation_queue = Some((*operation.lock().await).clone());
-                        app.show_error(&format!("Upload failed: {e}"));
-                    }
-                }
+                });
+
+                // Store background task for UI to poll
+                app.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+                    task_handle,
+                    progress_counter: transferred_counter,
+                    operation,
+                });
             }
         }
         _ => {}

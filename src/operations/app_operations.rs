@@ -1,7 +1,6 @@
 use crate::app::{App, PanelType};
 use crate::models::list::{ItemData, ItemType, PanelItem};
 use anyhow::Result;
-use std::io::Read;
 
 pub async fn confirm_delete(app: &mut App) -> Result<()> {
     let path = app.delete_confirmation.path.clone();
@@ -51,12 +50,17 @@ pub async fn confirm_delete(app: &mut App) -> Result<()> {
 }
 
 pub async fn view_file(app: &mut App) -> Result<()> {
+    use crate::app::handlers::preview::{
+        is_image_file, show_file_content_preview, show_image_preview,
+    };
+    use crate::models::preview::PreviewSource;
+
     let panel = app.get_active_panel();
     let panel_type = panel.panel_type.clone();
     let selected_index = panel.selected_index;
 
     match panel_type {
-        PanelType::S3Browser { .. } => {
+        PanelType::S3Browser { bucket, .. } => {
             let item = app.get_active_panel().list_model.get_item(selected_index);
 
             if let Some(PanelItem {
@@ -68,42 +72,28 @@ pub async fn view_file(app: &mut App) -> Result<()> {
             {
                 let key = s3_obj.key.clone();
                 let filename = name.clone();
+                let bucket = bucket.clone();
 
-                if let Some(s3_manager) = &app.get_active_panel().s3_manager {
-                    match s3_manager.get_object_size(&key).await {
-                        Ok(file_size) => {
-                            let chunk_size = 100 * 1024;
-                            let load_size = if file_size < chunk_size {
-                                file_size
-                            } else {
-                                chunk_size
-                            };
-
-                            match s3_manager.get_object_range(&key, 0, load_size - 1).await {
-                                Ok(bytes) => match String::from_utf8(bytes) {
-                                    Ok(content) => {
-                                        app.preview.filename = filename;
-                                        app.preview.content = content;
-                                        app.preview.scroll_offset = 0;
-                                        app.preview.file_size = file_size;
-                                        app.preview.is_s3 = true;
-                                        app.preview.s3_key = key;
-                                        app.preview.byte_offset = load_size;
-                                        app.preview.total_lines = None;
-                                        app.prev_screen = Some(app.screen.clone());
-                                        app.screen = crate::app::Screen::FilePreview;
-                                    }
-                                    Err(_) => {
-                                        app.show_error("File is not valid UTF-8 text");
-                                    }
-                                },
-                                Err(e) => {
-                                    app.show_error(&format!("Failed to preview: {e}"));
-                                }
+                // Check if image
+                if is_image_file(&filename) {
+                    let source = PreviewSource::S3Object { key, bucket };
+                    show_image_preview(app, source).await?;
+                } else {
+                    // Text file - use new preview system
+                    if let Some(s3_manager) = &app.get_active_panel().s3_manager {
+                        match crate::operations::preview::file_loader::load_s3_file_content(
+                            &key, &bucket, s3_manager,
+                        )
+                        .await
+                        {
+                            Ok(preview) => {
+                                app.file_content_preview = Some(preview);
+                                app.prev_screen = Some(app.screen.clone());
+                                app.screen = crate::app::Screen::FileContentPreview;
                             }
-                        }
-                        Err(e) => {
-                            app.show_error(&format!("Failed to get file info: {e}"));
+                            Err(e) => {
+                                app.show_error(&format!("Cannot preview file: {e}"));
+                            }
                         }
                     }
                 }
@@ -119,77 +109,26 @@ pub async fn view_file(app: &mut App) -> Result<()> {
                         path: file_path, ..
                     },
                 name,
-                size,
                 ..
             }) = item
             {
-                let file_path = file_path.clone();
-                let file_name = name.clone();
-                let file_size = size.unwrap_or(0);
+                let path = file_path.clone();
+                let filename = name.clone();
+                let path_str = path.display().to_string();
 
-                match std::fs::File::open(&file_path) {
-                    Ok(file) => {
-                        let mut buffer = Vec::new();
-                        let max_bytes = 1024 * 1024;
-
-                        match file.take(max_bytes as u64).read_to_end(&mut buffer) {
-                            Ok(_) => match String::from_utf8(buffer) {
-                                Ok(content) => {
-                                    app.preview.filename = file_name;
-                                    app.preview.content = content;
-                                    app.preview.scroll_offset = 0;
-                                    app.preview.file_size = file_size as i64;
-                                    app.preview.is_s3 = false;
-                                    app.preview.byte_offset = max_bytes as i64;
-                                    app.prev_screen = Some(app.screen.clone());
-                                    app.screen = crate::app::Screen::FilePreview;
-                                }
-                                Err(_) => {
-                                    app.show_error("File is not valid UTF-8 text");
-                                }
-                            },
-                            Err(e) => {
-                                app.show_error(&format!("Failed to read file: {e}"));
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        app.show_error(&format!("Failed to open file: {e}"));
-                    }
+                // Check if image
+                if is_image_file(&filename) {
+                    let source = PreviewSource::LocalFile { path: path_str };
+                    show_image_preview(app, source).await?;
+                } else {
+                    // Text file
+                    let source = PreviewSource::LocalFile { path: path_str };
+                    show_file_content_preview(app, source).await?;
                 }
             }
         }
         _ => {
             app.show_error("Preview only available for files");
-        }
-    }
-
-    Ok(())
-}
-
-pub async fn load_more_preview_content(app: &mut App) -> Result<()> {
-    if !app.preview.is_s3 {
-        return Ok(());
-    }
-
-    if app.preview.byte_offset >= app.preview.file_size {
-        return Ok(());
-    }
-
-    let chunk_size = 100 * 1024;
-    let end_byte = (app.preview.byte_offset + chunk_size - 1).min(app.preview.file_size - 1);
-    let s3_key = app.preview.s3_key.clone();
-    let start_byte = app.preview.byte_offset;
-
-    if let Some(s3_manager) = &app.get_active_panel().s3_manager {
-        if let Ok(bytes) = s3_manager
-            .get_object_range(&s3_key, start_byte, end_byte)
-            .await
-        {
-            if let Ok(additional_content) = String::from_utf8(bytes) {
-                app.preview.content.push_str(&additional_content);
-                app.preview.byte_offset = end_byte + 1;
-            }
         }
     }
 

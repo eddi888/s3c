@@ -5,6 +5,7 @@ use std::path::PathBuf;
 pub struct ConfigFormState {
     pub profile: String,
     pub bucket: String,
+    pub base_prefix: String,
     pub description: String,
     pub region: String,
     pub roles: Vec<String>,
@@ -20,19 +21,6 @@ pub struct ProfileFormState {
     pub setup_script: String,
     pub field: usize,
     pub cursor: usize,
-}
-
-/// State for file preview screen
-#[derive(Debug, Clone, Default)]
-pub struct PreviewState {
-    pub content: String,
-    pub filename: String,
-    pub scroll_offset: usize,
-    pub file_size: i64,
-    pub is_s3: bool,
-    pub s3_key: String,
-    pub byte_offset: i64,
-    pub total_lines: Option<usize>,
 }
 
 /// State for delete confirmation dialog

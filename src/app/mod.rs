@@ -54,7 +54,8 @@ pub enum Screen {
     ProfileConfigForm,
     SortDialog,
     DeleteConfirmation,
-    FilePreview,
+    FileContentPreview,
+    ImagePreview,
     Input,
     Help,
 }
@@ -82,7 +83,8 @@ pub struct App {
     // Consolidated UI State
     pub config_form: ConfigFormState,
     pub profile_form: ProfileFormState,
-    pub preview: PreviewState,
+    pub file_content_preview: Option<crate::models::preview::FileContentPreview>,
+    pub image_preview: Option<crate::models::preview::ImagePreview>,
     pub delete_confirmation: DeleteConfirmationState,
     pub input: InputState,
     pub sort_dialog: SortDialogState,
@@ -90,6 +92,14 @@ pub struct App {
 
     // File Operations
     pub file_operation_queue: Option<FileOperation>,
+    pub background_transfer_task: Option<BackgroundTransferTask>,
+}
+
+/// Background file transfer task (non-blocking)
+pub struct BackgroundTransferTask {
+    pub task_handle: tokio::task::JoinHandle<anyhow::Result<()>>,
+    pub progress_counter: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub operation: std::sync::Arc<tokio::sync::Mutex<FileOperation>>,
 }
 
 impl Panel {
@@ -135,12 +145,14 @@ impl App {
             success_message: String::new(),
             config_form: ConfigFormState::default(),
             profile_form: ProfileFormState::default(),
-            preview: PreviewState::default(),
+            file_content_preview: None,
+            image_preview: None,
             delete_confirmation: DeleteConfirmationState::default(),
             input: InputState::default(),
             sort_dialog: SortDialogState::default(),
             script: ScriptState::default(),
             file_operation_queue: None,
+            background_transfer_task: None,
         };
 
         // Load local files for right panel

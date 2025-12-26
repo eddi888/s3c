@@ -19,6 +19,7 @@ pub struct S3Object {
     pub is_prefix: bool,
 }
 
+#[derive(Clone)]
 pub struct S3Manager {
     client: Client,
     bucket: String,

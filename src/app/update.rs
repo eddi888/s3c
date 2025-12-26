@@ -67,6 +67,72 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
             Ok(None)
         }
 
+        // ===== File Preview Navigation =====
+        Message::FilePreviewUp => {
+            handlers::scroll_file_preview_up(app);
+            // Auto-load previous content when near top (for Backward mode)
+            if let Some(preview) = &app.file_content_preview {
+                if preview.preview_mode == crate::models::preview::PreviewMode::Backward
+                    && preview.scroll_offset < 50
+                    && preview.content_start_offset > 0
+                {
+                    return Ok(Some(Message::LoadPreviousFileContent));
+                }
+            }
+            Ok(None)
+        }
+        Message::FilePreviewDown => {
+            handlers::scroll_file_preview_down(app);
+            // Auto-load more content when near end (for S3 files)
+            if let Some(preview) = &app.file_content_preview {
+                let line_count = preview.content.lines().count();
+                if line_count.saturating_sub(preview.scroll_offset) < 50 {
+                    return Ok(Some(Message::LoadMoreFileContent));
+                }
+            }
+            Ok(None)
+        }
+        Message::FilePreviewPageUp => {
+            handlers::scroll_file_preview_page_up(app, 20);
+            // Auto-load previous content when near top (for Backward mode)
+            if let Some(preview) = &app.file_content_preview {
+                if preview.preview_mode == crate::models::preview::PreviewMode::Backward
+                    && preview.scroll_offset < 50
+                    && preview.content_start_offset > 0
+                {
+                    return Ok(Some(Message::LoadPreviousFileContent));
+                }
+            }
+            Ok(None)
+        }
+        Message::FilePreviewPageDown => {
+            handlers::scroll_file_preview_page_down(app, 20);
+            // Auto-load more content when near end (for S3 files)
+            if let Some(preview) = &app.file_content_preview {
+                let line_count = preview.content.lines().count();
+                if line_count.saturating_sub(preview.scroll_offset) < 50 {
+                    return Ok(Some(Message::LoadMoreFileContent));
+                }
+            }
+            Ok(None)
+        }
+        Message::FilePreviewHome => {
+            handlers::scroll_file_preview_home(app).await?;
+            Ok(None)
+        }
+        Message::FilePreviewEnd => {
+            handlers::scroll_file_preview_end(app).await?;
+            Ok(None)
+        }
+        Message::LoadMoreFileContent => {
+            handlers::load_more_file_content(app).await?;
+            Ok(None)
+        }
+        Message::LoadPreviousFileContent => {
+            handlers::load_previous_file_content(app).await?;
+            Ok(None)
+        }
+
         // ===== Sort Dialog =====
         Message::ShowSortDialog => {
             handlers::show_sort_dialog(app);
@@ -267,53 +333,6 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
             Ok(Some(Message::GoBack))
         }
 
-        // ===== File Preview Messages =====
-        Message::PreviewScrollUp => {
-            if app.preview.scroll_offset > 0 {
-                app.preview.scroll_offset -= 1;
-            }
-            Ok(None)
-        }
-        Message::PreviewScrollDown => {
-            let line_count = app.preview.content.lines().count();
-            if app.preview.scroll_offset < line_count.saturating_sub(1) {
-                app.preview.scroll_offset += 1;
-                if app.preview.is_s3 && line_count.saturating_sub(app.preview.scroll_offset) < 50 {
-                    return Ok(Some(Message::LoadMorePreviewContent));
-                }
-            }
-            Ok(None)
-        }
-        Message::PreviewPageUp => {
-            app.preview.scroll_offset = app.preview.scroll_offset.saturating_sub(20);
-            Ok(None)
-        }
-        Message::PreviewPageDown => {
-            let line_count = app.preview.content.lines().count();
-            app.preview.scroll_offset =
-                (app.preview.scroll_offset + 20).min(line_count.saturating_sub(1));
-            if app.preview.is_s3 && line_count.saturating_sub(app.preview.scroll_offset) < 50 {
-                return Ok(Some(Message::LoadMorePreviewContent));
-            }
-            Ok(None)
-        }
-        Message::PreviewHome => {
-            app.preview.scroll_offset = 0;
-            Ok(None)
-        }
-        Message::PreviewEnd => {
-            let line_count = app.preview.content.lines().count();
-            app.preview.scroll_offset = line_count.saturating_sub(1);
-            if app.preview.is_s3 {
-                return Ok(Some(Message::LoadMorePreviewContent));
-            }
-            Ok(None)
-        }
-        Message::LoadMorePreviewContent => {
-            crate::operations::load_more_preview_content(app).await?;
-            Ok(None)
-        }
-
         // ===== File Operations =====
         Message::ViewFile => {
             crate::operations::view_file(app).await?;
@@ -333,6 +352,35 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
         }
         Message::CopyToOtherPanel => {
             app.copy_to_other_panel().await?;
+            Ok(None)
+        }
+        Message::CancelTransfer => {
+            if let Some(task) = app.background_transfer_task.take() {
+                // Abort the background task
+                task.task_handle.abort();
+
+                // Update operation status
+                let mut operation = task.operation.lock().await;
+                operation.status = crate::operations::OperationStatus::Cancelled;
+                let operation_type = operation.operation_type.clone();
+                app.file_operation_queue = Some(operation.clone());
+
+                app.show_error("Transfer cancelled by user");
+
+                // Refresh panels to show partially transferred files
+                match operation_type {
+                    crate::operations::OperationType::Download => {
+                        crate::app::navigation::reload_local_files(app).await?;
+                    }
+                    crate::operations::OperationType::Upload => {
+                        crate::app::navigation::reload_s3_browser(app).await?;
+                    }
+                    crate::operations::OperationType::Copy => {
+                        crate::app::navigation::reload_local_files(app).await?;
+                    }
+                    _ => {}
+                }
+            }
             Ok(None)
         }
 

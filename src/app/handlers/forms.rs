@@ -59,7 +59,7 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
             }
         }
         ConfigFormDown => {
-            let max_field = app.config_form.roles.len() + 4;
+            let max_field = app.config_form.roles.len() + 5;
             if app.config_form.field < max_field {
                 app.config_form.field += 1;
                 app.config_form.cursor = get_config_form_field_len(app, app.config_form.field);
@@ -86,17 +86,21 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
             if app.config_form.field == 0 && app.config_form.cursor < app.config_form.bucket.len() {
                 app.config_form.bucket.remove(app.config_form.cursor);
             } else if app.config_form.field == 1
+                && app.config_form.cursor < app.config_form.base_prefix.len()
+            {
+                app.config_form.base_prefix.remove(app.config_form.cursor);
+            } else if app.config_form.field == 2
                 && app.config_form.cursor < app.config_form.description.len()
             {
                 app.config_form.description.remove(app.config_form.cursor);
-            } else if app.config_form.field == 2
+            } else if app.config_form.field == 3
                 && app.config_form.cursor < app.config_form.region.len()
             {
                 app.config_form.region.remove(app.config_form.cursor);
-            } else if app.config_form.field > 2
-                && app.config_form.field <= app.config_form.roles.len() + 2
+            } else if app.config_form.field > 3
+                && app.config_form.field <= app.config_form.roles.len() + 3
             {
-                let role_idx = app.config_form.field - 3;
+                let role_idx = app.config_form.field - 4;
                 if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                     if app.config_form.cursor < role.len() {
                         role.remove(app.config_form.cursor);
@@ -110,16 +114,21 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
                 app.config_form.cursor += 1;
             } else if app.config_form.field == 1 {
                 app.config_form
-                    .description
+                    .base_prefix
                     .insert(app.config_form.cursor, c);
                 app.config_form.cursor += 1;
             } else if app.config_form.field == 2 {
+                app.config_form
+                    .description
+                    .insert(app.config_form.cursor, c);
+                app.config_form.cursor += 1;
+            } else if app.config_form.field == 3 {
                 app.config_form.region.insert(app.config_form.cursor, c);
                 app.config_form.cursor += 1;
-            } else if app.config_form.field > 2
-                && app.config_form.field <= app.config_form.roles.len() + 2
+            } else if app.config_form.field > 3
+                && app.config_form.field <= app.config_form.roles.len() + 3
             {
-                let role_idx = app.config_form.field - 3;
+                let role_idx = app.config_form.field - 4;
                 if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                     role.insert(app.config_form.cursor, c);
                     app.config_form.cursor += 1;
@@ -133,14 +142,17 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
                     app.config_form.bucket.remove(app.config_form.cursor);
                 } else if app.config_form.field == 1 {
                     app.config_form.cursor -= 1;
-                    app.config_form.description.remove(app.config_form.cursor);
+                    app.config_form.base_prefix.remove(app.config_form.cursor);
                 } else if app.config_form.field == 2 {
                     app.config_form.cursor -= 1;
+                    app.config_form.description.remove(app.config_form.cursor);
+                } else if app.config_form.field == 3 {
+                    app.config_form.cursor -= 1;
                     app.config_form.region.remove(app.config_form.cursor);
-                } else if app.config_form.field > 2
-                    && app.config_form.field <= app.config_form.roles.len() + 2
+                } else if app.config_form.field > 3
+                    && app.config_form.field <= app.config_form.roles.len() + 3
                 {
-                    let role_idx = app.config_form.field - 3;
+                    let role_idx = app.config_form.field - 4;
                     if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                         app.config_form.cursor -= 1;
                         role.remove(app.config_form.cursor);
@@ -154,8 +166,8 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
         ConfigFormRemoveRole => {
             if app.config_form.roles.len() > 1 {
                 app.config_form.roles.pop();
-                if app.config_form.field >= 2 + app.config_form.roles.len() {
-                    app.config_form.field = 2 + app.config_form.roles.len() - 1;
+                if app.config_form.field >= 3 + app.config_form.roles.len() {
+                    app.config_form.field = 3 + app.config_form.roles.len() - 1;
                 }
             }
         }
@@ -167,10 +179,11 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
 fn get_config_form_field_len(app: &App, field: usize) -> usize {
     match field {
         0 => app.config_form.bucket.len(),
-        1 => app.config_form.description.len(),
-        2 => app.config_form.region.len(),
-        _ if field <= app.config_form.roles.len() + 2 => {
-            let role_idx = field - 3;
+        1 => app.config_form.base_prefix.len(),
+        2 => app.config_form.description.len(),
+        3 => app.config_form.region.len(),
+        _ if field <= app.config_form.roles.len() + 3 => {
+            let role_idx = field - 4;
             app.config_form
                 .roles
                 .get(role_idx)
@@ -197,15 +210,11 @@ pub fn save_config_form(app: &mut App) -> Result<()> {
             Some(app.config_form.description.clone())
         };
 
-        let buckets = app
-            .config_manager
-            .get_buckets_for_profile(&app.config_form.profile);
-        let bucket_exists = buckets.iter().any(|b| b.name == app.config_form.bucket);
-
-        if bucket_exists {
-            app.config_manager
-                .remove_bucket_from_profile(&app.config_form.profile, &app.config_form.bucket)?;
-        }
+        let base_prefix = if app.config_form.base_prefix.trim().is_empty() {
+            None
+        } else {
+            Some(app.config_form.base_prefix.clone())
+        };
 
         app.config_manager.add_bucket_to_profile(
             &app.config_form.profile,
@@ -213,7 +222,18 @@ pub fn save_config_form(app: &mut App) -> Result<()> {
             roles,
             app.config_form.region.clone(),
             description,
+            base_prefix,
         )?;
+
+        // Refresh bucket list if we're on BucketList screen
+        let profile = app.config_form.profile.clone();
+        let buckets = app.config_manager.get_buckets_for_profile(&profile);
+        if let crate::app::PanelType::BucketList { .. } = &app.get_active_panel().panel_type {
+            let panel = app.get_active_panel();
+            panel
+                .list_model
+                .set_items(crate::app::converters::buckets_to_items(buckets));
+        }
 
         app.show_success("Bucket configuration saved!");
     }
@@ -244,6 +264,7 @@ pub fn edit_bucket_config(app: &mut App) {
 
             app.config_form.profile = profile;
             app.config_form.bucket = bucket_config.name.clone();
+            app.config_form.base_prefix = bucket_config.base_prefix.clone().unwrap_or_default();
             app.config_form.description = bucket_config.description.clone().unwrap_or_default();
             app.config_form.region = bucket_config.region.clone();
             app.config_form.roles = if bucket_config.role_chain.is_empty() {

@@ -1,12 +1,12 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem},
     Frame,
 };
 
 use super::helpers::{format_size, truncate_string};
-use crate::app::{App, Panel, PanelType};
+use crate::app::{Panel, PanelType};
 
 pub fn draw_panel(
     f: &mut Frame,
@@ -246,77 +246,4 @@ pub fn draw_panel(
     );
 
     f.render_widget(list, area);
-}
-
-pub fn draw_file_preview(f: &mut Frame, app: &App) {
-    f.render_widget(ratatui::widgets::Clear, f.area());
-
-    let base_block = Block::default()
-        .borders(Borders::NONE)
-        .style(Style::default().bg(Color::Black));
-    f.render_widget(base_block, f.area());
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3),
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
-
-    let line_count = app.preview.content.lines().count();
-
-    let file_size_str = format_size(app.preview.file_size as u64);
-    let loaded_size_str = format_size(app.preview.byte_offset as u64);
-
-    let title_text = if app.preview.is_s3 && app.preview.byte_offset < app.preview.file_size {
-        format!(
-            "File Preview: {} ({} of {} loaded) - Line {}/{}+",
-            app.preview.filename,
-            loaded_size_str,
-            file_size_str,
-            app.preview.scroll_offset + 1,
-            line_count
-        )
-    } else {
-        format!(
-            "File Preview: {} ({}) - Line {}/{}",
-            app.preview.filename,
-            file_size_str,
-            app.preview.scroll_offset + 1,
-            line_count
-        )
-    };
-
-    let title = Paragraph::new(title_text)
-        .style(
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(title, chunks[0]);
-
-    f.render_widget(ratatui::widgets::Clear, chunks[1]);
-
-    let content_text = app.preview.content.replace('\t', "    ");
-
-    let content = Paragraph::new(content_text)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().bg(Color::Black)),
-        )
-        .style(Style::default().bg(Color::Black))
-        .wrap(Wrap { trim: false })
-        .scroll((app.preview.scroll_offset as u16, 0));
-    f.render_widget(content, chunks[1]);
-
-    let help = Paragraph::new("↑/↓: Scroll | PgUp/PgDn: Page | Home/End: Jump | ESC/q: Close")
-        .style(Style::default().fg(Color::Gray))
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL));
-    f.render_widget(help, chunks[2]);
 }

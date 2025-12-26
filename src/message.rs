@@ -30,13 +30,14 @@ pub enum Message {
     ShowProfileConfigForm,
     ShowCreateFolderPrompt,
     ShowRenamePrompt,
-    ShowFilePreview {
-        filename: String,
-        content: String,
-        file_size: i64,
-        is_s3: bool,
-        s3_key: String,
-    },
+    FilePreviewUp,
+    FilePreviewDown,
+    FilePreviewPageUp,
+    FilePreviewPageDown,
+    FilePreviewHome,
+    FilePreviewEnd,
+    LoadMoreFileContent,
+    LoadPreviousFileContent,
     ToggleAdvancedMode,
 
     // ===== Sort Dialog =====
@@ -48,6 +49,9 @@ pub enum Message {
     ApplyFilter {
         pattern: String,
     },
+
+    // ===== File Operations =====
+    CancelTransfer,
 
     // ===== Delete Confirmation =====
     ShowDeleteConfirmation {
@@ -104,15 +108,6 @@ pub enum Message {
     InputEnd,
     InputSubmit,
     InputCancel,
-
-    // ===== File Preview =====
-    PreviewScrollUp,
-    PreviewScrollDown,
-    PreviewPageUp,
-    PreviewPageDown,
-    PreviewHome,
-    PreviewEnd,
-    LoadMorePreviewContent,
 
     // ===== File Operations =====
     CreateFolder {

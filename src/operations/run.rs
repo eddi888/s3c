@@ -69,6 +69,51 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             }
         }
 
+        // Check background transfer task and update queue
+        if let Some(task) = &mut app.background_transfer_task {
+            // Update queue with current progress
+            let current = task
+                .progress_counter
+                .load(std::sync::atomic::Ordering::Relaxed);
+            if let Some(ref mut queue) = app.file_operation_queue {
+                queue.transferred = current;
+            }
+
+            // Check if task is finished
+            if task.task_handle.is_finished() {
+                let task = app.background_transfer_task.take().unwrap();
+                let mut operation = (*task.operation.lock().await).clone();
+
+                // Ensure transferred shows 100% on completion (for fast small files)
+                if operation.status == crate::operations::OperationStatus::Completed {
+                    operation.transferred = operation.total_size;
+                }
+
+                app.file_operation_queue = Some(operation.clone());
+
+                // Handle completion/error
+                match operation.status {
+                    crate::operations::OperationStatus::Completed => {
+                        match &operation.operation_type {
+                            crate::operations::OperationType::Download => {
+                                app.show_success(&format!("Downloaded: {}", operation.source));
+                                crate::app::navigation::reload_local_files(app).await?;
+                            }
+                            crate::operations::OperationType::Upload => {
+                                app.show_success(&format!("Uploaded: {}", operation.source));
+                                crate::app::navigation::reload_s3_browser(app).await?;
+                            }
+                            _ => {}
+                        }
+                    }
+                    crate::operations::OperationStatus::Failed(ref err) => {
+                        app.show_error(&format!("Transfer failed: {err}"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         terminal.draw(|f| ui::draw(f, app))?;
 
         if app.should_quit {

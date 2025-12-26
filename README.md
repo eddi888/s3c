@@ -21,9 +21,16 @@ Ein Midnight Commander-inspiriertes Terminal User Interface (TUI) für S3-Dateiv
 ### 📂 Dateiverwaltung
 - 🗂️ **S3 Browser** - Navigation durch S3 Buckets und Objekte
 - 💻 **Local Filesystem** - Lokales Dateisystem durchsuchen
-- 👁️ **File Preview** - Vorschau für S3 und lokale Dateien (mit TAB-zu-Space-Konvertierung)
+- 👁️ **File Preview** - Vorschau für S3 und lokale Dateien
+  - Automatischer Zeilenumbruch für lange Zeilen (z.B. einzeilige JSON-Dateien)
+  - Visuelles Scrolling inkl. umgebrochener Zeilen
+  - END-Taste springt zum visuellen Ende der Datei
+  - Lazy Loading für große Dateien (100KB Chunks)
+  - Forward/Backward Modus für effiziente Navigation
 - ⬇️ **Download** - S3 → Local mit Pfad-Eingabe
 - ⬆️ **Upload** - Local → S3 mit Ziel-Pfad-Eingabe
+  - Hintergrund-Transfers mit Fortschrittsanzeige
+  - Transfer-Abbruch mit 'x'-Taste möglich
 - 📁 **S3 Folder Creation** - Erstellen von S3 "Ordnern" (Prefix-Marker)
 - ✏️ **Rename** - Umbenennen von Dateien und Ordnern (S3/Local)
 - 🔍 **Filter** - Filterung nach Namen in allen Listen
@@ -144,6 +151,14 @@ Die Anwendung startet mit zwei Panels:
 - **F8** - Lokale Datei löschen
 - **..** - Zum Parent-Verzeichnis
 
+**File Preview (F3):**
+- **↑/↓** - Zeile für Zeile scrollen (inkl. umgebrochene Zeilen)
+- **PgUp/PgDn** - Seitenweise scrollen
+- **Home** - Zum Anfang der Datei springen (lädt Head bei Bedarf)
+- **End** - Zum Ende der Datei springen (lädt Tail bei Bedarf)
+- **Esc** - Vorschau schließen
+- Info-Leiste zeigt: Line Position | Mode (FWD/BWD) | Status (FULL/CHUNK) | Chunks geladen | Dateigröße
+
 ## Keyboard Shortcuts
 
 ### MC-Style Function Keys (Kontextabhängig)
@@ -197,6 +212,7 @@ Format:
         },
         {
           "name": "my-bucket-2",
+          "base_prefix": "subfolder/",
           "region": "us-east-1",
           "description": "Cross-account bucket",
           "role_chain": [
@@ -221,6 +237,11 @@ Format:
 **Buckets:**
 - `name` - S3 Bucket-Name
 - `region` - AWS Region (z.B. "eu-west-1", "us-east-1")
+- `base_prefix` - Optionaler Start-Prefix beim Öffnen des Buckets (z.B. "subfolder/" oder "logs/2024/")
+  - Ermöglicht direktes Navigieren zu einem Unterordner
+  - Bucket öffnet automatisch im angegebenen Prefix
+  - Nützlich für organisierte Buckets mit vielen Unterordnern
+  - Notwendig bei Berechtigungen auf bestimmte Prefixe
 - `description` - Optionale Beschreibung
 - `role_chain` - Optionale Liste von Role ARNs für Role Chaining
 

@@ -118,6 +118,27 @@ pub fn show_rename_prompt(app: &mut App) {
 
 pub fn show_delete_confirmation_dialog(app: &mut App) {
     let selected_index = app.get_active_panel().selected_index;
+    let panel_type = app.get_active_panel().panel_type.clone();
+
+    // Check if we're on BucketList and if the item is a bucket
+    if let crate::app::PanelType::BucketList { .. } = panel_type {
+        let item = app.get_active_panel().list_model.get_item(selected_index);
+        let is_bucket = matches!(
+            item,
+            Some(PanelItem {
+                data: ItemData::Bucket(_),
+                ..
+            })
+        );
+
+        if is_bucket {
+            // For bucket deletion, use the dedicated handler
+            let _ = crate::app::handlers::forms::delete_bucket_config(app);
+            return;
+        }
+    }
+
+    // For non-bucket items, get item data
     let item = app.get_active_panel().list_model.get_item(selected_index);
 
     // Extract data from item before modifying app

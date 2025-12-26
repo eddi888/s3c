@@ -10,9 +10,18 @@ use crate::app::App;
 
 pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
     if let Some(ref operation) = app.file_operation_queue {
+        // Add cancel hint if transfer is in progress
+        let title = if app.background_transfer_task.is_some()
+            && operation.status == crate::operations::OperationStatus::InProgress
+        {
+            "File Operations Queue - Press 'x' to cancel"
+        } else {
+            "File Operations Queue"
+        };
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .title("File Operations Queue")
+            .title(title)
             .border_style(Style::default().fg(Color::Yellow));
 
         let inner = block.inner(area);
@@ -36,6 +45,7 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
             crate::operations::OperationStatus::Pending => "⏸",
             crate::operations::OperationStatus::InProgress => "⟳",
             crate::operations::OperationStatus::Completed => "✓",
+            crate::operations::OperationStatus::Cancelled => "⊗",
             crate::operations::OperationStatus::Failed(_) => "✗",
         };
 
@@ -43,6 +53,7 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
             crate::operations::OperationStatus::Pending => Color::Yellow,
             crate::operations::OperationStatus::InProgress => Color::Cyan,
             crate::operations::OperationStatus::Completed => Color::Green,
+            crate::operations::OperationStatus::Cancelled => Color::Yellow,
             crate::operations::OperationStatus::Failed(_) => Color::Red,
         };
 

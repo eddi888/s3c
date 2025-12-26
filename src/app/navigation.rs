@@ -75,8 +75,16 @@ pub async fn enter_selected(app: &mut App) -> Result<()> {
                     item_type: ItemType::ParentDir,
                     ..
                 }) => {
-                    if prefix.is_empty() {
-                        let buckets = app.config_manager.get_buckets_for_profile(&profile);
+                    // Get base_prefix from bucket config
+                    let buckets = app.config_manager.get_buckets_for_profile(&profile);
+                    let base_prefix = buckets
+                        .iter()
+                        .find(|b| b.name == bucket)
+                        .and_then(|b| b.base_prefix.clone())
+                        .unwrap_or_default();
+
+                    // Check if we're at or below base_prefix - if so, go back to bucket list
+                    if prefix.is_empty() || prefix == base_prefix {
                         let panel = app.get_active_panel();
                         panel.panel_type = PanelType::BucketList { profile };
                         panel
@@ -91,7 +99,15 @@ pub async fn enter_selected(app: &mut App) -> Result<()> {
                             .map(|x| x.0)
                             .map(|s| format!("{s}/"))
                             .unwrap_or_default();
-                        navigate_to_s3_prefix(app, profile, bucket, parent).await?;
+
+                        // Don't go higher than base_prefix
+                        let target_prefix = if !base_prefix.is_empty() && parent < base_prefix {
+                            base_prefix
+                        } else {
+                            parent
+                        };
+
+                        navigate_to_s3_prefix(app, profile, bucket, target_prefix).await?;
                     }
                 }
                 Some(PanelItem {
@@ -178,13 +194,16 @@ pub async fn load_s3_bucket_no_script(
         }
     };
 
-    match s3_manager.list_objects("").await {
+    // Use base_prefix if configured
+    let initial_prefix = bucket_config.base_prefix.clone().unwrap_or_default();
+
+    match s3_manager.list_objects(&initial_prefix).await {
         Ok(objects) => {
             let panel = app.get_active_panel();
             panel.panel_type = PanelType::S3Browser {
                 profile,
                 bucket,
-                prefix: String::new(),
+                prefix: initial_prefix,
             };
             panel
                 .list_model

@@ -268,7 +268,9 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Length(3),
+            Constraint::Length(3),
             Constraint::Min(3),
+            Constraint::Length(3),
             Constraint::Length(3),
         ])
         .split(chunks[1]);
@@ -292,7 +294,26 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let desc_style = if app.config_form.field == 1 {
+    let base_prefix_style = if app.config_form.field == 1 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let base_prefix = Paragraph::new(format!("Base Folder: {}", app.config_form.base_prefix))
+        .style(base_prefix_style)
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(base_prefix, form_chunks[1]);
+
+    if app.config_form.field == 1 {
+        let cursor_x =
+            form_chunks[1].x + 1 + "Base Folder: ".len() as u16 + app.config_form.cursor as u16;
+        let cursor_y = form_chunks[1].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
+
+    let desc_style = if app.config_form.field == 2 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
@@ -302,16 +323,16 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     let description = Paragraph::new(format!("Description: {}", app.config_form.description))
         .style(desc_style)
         .block(Block::default().borders(Borders::ALL));
-    f.render_widget(description, form_chunks[1]);
+    f.render_widget(description, form_chunks[2]);
 
-    if app.config_form.field == 1 {
+    if app.config_form.field == 2 {
         let cursor_x =
-            form_chunks[1].x + 1 + "Description: ".len() as u16 + app.config_form.cursor as u16;
-        let cursor_y = form_chunks[1].y + 1;
+            form_chunks[2].x + 1 + "Description: ".len() as u16 + app.config_form.cursor as u16;
+        let cursor_y = form_chunks[2].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let region_style = if app.config_form.field == 2 {
+    let region_style = if app.config_form.field == 3 {
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD)
@@ -321,16 +342,16 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     let region = Paragraph::new(format!("Region: {}", app.config_form.region))
         .style(region_style)
         .block(Block::default().borders(Borders::ALL));
-    f.render_widget(region, form_chunks[2]);
+    f.render_widget(region, form_chunks[3]);
 
-    if app.config_form.field == 2 {
+    if app.config_form.field == 3 {
         let cursor_x =
-            form_chunks[2].x + 1 + "Region: ".len() as u16 + app.config_form.cursor as u16;
-        let cursor_y = form_chunks[2].y + 1;
+            form_chunks[3].x + 1 + "Region: ".len() as u16 + app.config_form.cursor as u16;
+        let cursor_y = form_chunks[3].y + 1;
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let roles_area = form_chunks[3];
+    let roles_area = form_chunks[4];
     let role_block = Block::default().borders(Borders::ALL).title("Role ARNs");
     f.render_widget(role_block, roles_area);
 
@@ -347,7 +368,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         .split(inner_area);
 
     for (i, role) in app.config_form.roles.iter().enumerate() {
-        let role_style = if app.config_form.field == i + 3 {
+        let role_style = if app.config_form.field == i + 4 {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
@@ -359,7 +380,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         if i < role_chunks.len() {
             f.render_widget(role_para, role_chunks[i]);
 
-            if app.config_form.field == i + 3 {
+            if app.config_form.field == i + 4 {
                 let cursor_x = role_chunks[i].x
                     + format!("[{}] ", i + 1).len() as u16
                     + app.config_form.cursor as u16;
@@ -375,7 +396,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         f.render_widget(help_text, role_chunks[app.config_form.roles.len()]);
     }
 
-    let button_field = app.config_form.roles.len() + 3;
+    let button_field = app.config_form.roles.len() + 4;
     let save_style = if app.config_form.field == button_field {
         Style::default()
             .fg(Color::Green)
@@ -400,7 +421,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     } else {
         Paragraph::new("Save  Cancel").alignment(Alignment::Center)
     };
-    f.render_widget(buttons, form_chunks[4]);
+    f.render_widget(buttons, form_chunks[5]);
 
     let help = Paragraph::new("↑/↓: Navigate | Type: Edit field | +: Add role | -: Remove role | Enter: Save/Cancel | Esc: Cancel")
         .style(Style::default().fg(Color::Gray))
