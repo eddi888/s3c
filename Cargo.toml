@@ -3,6 +3,14 @@ name = "s3c"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "s3c"
+path = "src/lib.rs"
+
+[[bin]]
+name = "s3c"
+path = "src/main.rs"
+
 [dependencies]
 ratatui = "0.28"
 crossterm = "0.28"
