@@ -174,6 +174,12 @@ pub fn draw_panel(
             let title = format!("S3: {bucket}/{prefix}");
             let mut items: Vec<ListItem> = Vec::new();
 
+            // Calculate dynamic filename width based on available space
+            // Reserve: 2 (borders) + 10 (size) + 2 (spacing) + 16 (date) + 1 (spacing) = 31
+            let available_width = area.width.saturating_sub(4) as usize; // 4 for borders + padding
+            let reserved_width = 29; // size (10) + spacing (2) + date (16) + spacing (1)
+            let name_width = available_width.saturating_sub(reserved_width).max(20);
+
             items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
                 use crate::models::list::ItemType;
 
@@ -199,10 +205,11 @@ pub fn draw_panel(
                 };
 
                 let display = format!(
-                    "{:<40} {:>10}  {}",
-                    truncate_string(&icon_name, 40),
+                    "{:<width$} {:>10}  {}",
+                    truncate_string(&icon_name, name_width),
                     size_str,
-                    modified_str
+                    modified_str,
+                    width = name_width
                 );
 
                 let style = if i == panel.selected_index && is_active {
@@ -221,6 +228,12 @@ pub fn draw_panel(
         PanelType::LocalFilesystem { path } => {
             let title = format!("Local: {}", path.display());
             let mut items: Vec<ListItem> = Vec::new();
+
+            // Calculate dynamic filename width based on available space
+            // Reserve: 2 (borders) + 10 (size) + 2 (spacing) + 16 (date) + 1 (spacing) = 31
+            let available_width = area.width.saturating_sub(4) as usize; // 4 for borders + padding
+            let reserved_width = 29; // size (10) + spacing (2) + date (16) + spacing (1)
+            let name_width = available_width.saturating_sub(reserved_width).max(20);
 
             items.extend(panel.list_model.iter().enumerate().map(|(i, item)| {
                 use crate::models::list::ItemType;
@@ -243,10 +256,11 @@ pub fn draw_panel(
                 };
 
                 let display = format!(
-                    "{:<40} {:>10}  {}",
-                    truncate_string(&icon_name, 40),
+                    "{:<width$} {:>10}  {}",
+                    truncate_string(&icon_name, name_width),
                     size_str,
-                    modified_str
+                    modified_str,
+                    width = name_width
                 );
 
                 let style = if i == panel.selected_index && is_active {

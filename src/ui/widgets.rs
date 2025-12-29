@@ -114,6 +114,7 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
             crate::operations::OperationType::Upload => "↑ Upload",
             crate::operations::OperationType::Download => "↓ Download",
             crate::operations::OperationType::Copy => "→ Copy",
+            crate::operations::OperationType::S3Copy => "⇄ S3 Copy",
             crate::operations::OperationType::Rename => "✎ Rename",
         };
 
@@ -141,13 +142,18 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
         // Add selection indicator if this is the selected item
         let selection_mark = if is_selected { "►" } else { " " };
 
+        // Calculate dynamic path width based on available space
+        // Fixed parts: selection_mark (2) + status_icon (2) + op_type (12) + separators (8) + size (20) + percentage (7) = 51
+        let available_width = chunks[chunk_idx].width.saturating_sub(51) as usize;
+        let path_width = (available_width / 2).max(15); // At least 15 chars per path
+
         let info_text = format!(
             "{} {} {} │ {} → {} │ {} / {} ({:3}%)",
             selection_mark,
             status_icon,
             op_type,
-            truncate_filename(&operation.source, 18),
-            truncate_filename(&operation.destination, 18),
+            truncate_filename(&operation.source, path_width),
+            truncate_filename(&operation.destination, path_width),
             transferred_str,
             total_str,
             percentage

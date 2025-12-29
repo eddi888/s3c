@@ -410,10 +410,13 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
                     .position(|op| op.status == crate::operations::OperationStatus::InProgress);
             }
 
-            // Exit queue focus if queue is now empty
+            // Adjust selected_queue_index to stay within bounds
             if app.file_operation_queue.is_empty() {
                 app.queue_focused = false;
                 app.selected_queue_index = 0;
+            } else if app.selected_queue_index >= app.file_operation_queue.len() {
+                // If selected index is now out of bounds, move to last item
+                app.selected_queue_index = app.file_operation_queue.len().saturating_sub(1);
             }
 
             Ok(None)

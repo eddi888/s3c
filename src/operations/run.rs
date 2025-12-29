@@ -126,6 +126,13 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                                 app.show_success(&format!("Uploaded: {}", operation.source));
                                 crate::app::navigation::reload_s3_browser(app).await?;
                             }
+                            crate::operations::OperationType::S3Copy => {
+                                app.show_success(&format!(
+                                    "S3 copy completed: {}",
+                                    operation.source
+                                ));
+                                crate::app::navigation::reload_s3_browser(app).await?;
+                            }
                             _ => {}
                         }
                     }
@@ -316,6 +323,95 @@ async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
                     }
                 }
             }
+            crate::operations::OperationType::S3Copy => {
+                // S3 → S3: Copy between buckets/providers
+                if let (
+                    Some(src_profile),
+                    Some(src_bucket),
+                    Some(dest_profile),
+                    Some(dest_bucket),
+                ) = (&op.profile, &op.bucket, &op.dest_profile, &op.dest_bucket)
+                {
+                    // Get source bucket config
+                    let src_bucket_config = app
+                        .config_manager
+                        .get_buckets_for_profile(src_profile)
+                        .into_iter()
+                        .find(|b| &b.name == src_bucket);
+
+                    // Get destination bucket config
+                    let dest_bucket_config = app
+                        .config_manager
+                        .get_buckets_for_profile(dest_profile)
+                        .into_iter()
+                        .find(|b| &b.name == dest_bucket);
+
+                    if let (Some(src_config), Some(dest_config)) =
+                        (src_bucket_config, dest_bucket_config)
+                    {
+                        // Create both S3 managers
+                        let src_manager_result = crate::operations::s3::S3Manager::new(
+                            src_profile,
+                            src_bucket.clone(),
+                            src_config.role_chain.clone(),
+                            &src_config.region,
+                            src_config.endpoint_url.as_deref(),
+                            src_config.path_style,
+                        )
+                        .await;
+
+                        let dest_manager_result = crate::operations::s3::S3Manager::new(
+                            dest_profile,
+                            dest_bucket.clone(),
+                            dest_config.role_chain.clone(),
+                            &dest_config.region,
+                            dest_config.endpoint_url.as_deref(),
+                            dest_config.path_style,
+                        )
+                        .await;
+
+                        match (src_manager_result, dest_manager_result) {
+                            (Ok(src_manager), Ok(dest_manager)) => {
+                                // Extract keys from s3:// URLs
+                                let source_key = op
+                                    .source
+                                    .strip_prefix(&format!("s3://{src_bucket}/"))
+                                    .unwrap_or(&op.source)
+                                    .to_string();
+                                let dest_key = op
+                                    .destination
+                                    .strip_prefix(&format!("s3://{dest_bucket}/"))
+                                    .unwrap_or(&op.destination)
+                                    .to_string();
+
+                                start_s3_copy_task(
+                                    app,
+                                    operation,
+                                    src_manager,
+                                    dest_manager,
+                                    src_bucket.clone(),
+                                    source_key,
+                                    dest_key,
+                                )
+                                .await;
+                            }
+                            (Err(e), _) | (_, Err(e)) => {
+                                app.file_operation_queue[index].status =
+                                    crate::operations::OperationStatus::Failed(format!(
+                                        "S3Manager creation failed: {e}"
+                                    ));
+                                app.current_transfer_index = None;
+                            }
+                        }
+                    } else {
+                        app.file_operation_queue[index].status =
+                            crate::operations::OperationStatus::Failed(
+                                "Bucket config not found".to_string(),
+                            );
+                        app.current_transfer_index = None;
+                    }
+                }
+            }
             _ => {
                 // Other operation types not supported in queue yet
                 app.file_operation_queue[index].status = crate::operations::OperationStatus::Failed(
@@ -409,6 +505,77 @@ async fn start_upload_task(
                 operation_clone.lock().await.status =
                     crate::operations::OperationStatus::Failed(format!("{e}"));
                 Err(anyhow::anyhow!("Upload failed: {e}"))
+            }
+        }
+    });
+
+    app.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+        task_handle,
+        progress_counter: transferred_counter,
+        operation,
+    });
+}
+
+async fn start_s3_copy_task(
+    app: &mut App,
+    operation: std::sync::Arc<tokio::sync::Mutex<crate::operations::FileOperation>>,
+    src_manager: crate::operations::s3::S3Manager,
+    dest_manager: crate::operations::s3::S3Manager,
+    src_bucket: String,
+    source_key: String,
+    dest_key: String,
+) {
+    use std::sync::Arc;
+
+    let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let transferred_clone = transferred_counter.clone();
+
+    let progress_callback: crate::operations::s3::ProgressCallback =
+        Arc::new(tokio::sync::Mutex::new(move |transferred: u64| {
+            transferred_clone.store(transferred, std::sync::atomic::Ordering::Relaxed);
+        }));
+
+    let operation_clone = operation.clone();
+
+    let task_handle = tokio::spawn(async move {
+        // Try server-side copy first (works for same-bucket and cross-bucket)
+        let result = dest_manager
+            .copy_from_bucket_with_progress(
+                &src_bucket,
+                &source_key,
+                &dest_key,
+                Some(progress_callback.clone()),
+            )
+            .await;
+
+        match result {
+            Ok(_) => {
+                operation_clone.lock().await.status = crate::operations::OperationStatus::Completed;
+                Ok(())
+            }
+            Err(_) => {
+                // Fallback to stream-based copy (cross-account/region) with progress
+                let stream_result = dest_manager
+                    .stream_copy_from_with_progress(
+                        &src_manager,
+                        &source_key,
+                        &dest_key,
+                        Some(progress_callback),
+                    )
+                    .await;
+
+                match stream_result {
+                    Ok(_) => {
+                        operation_clone.lock().await.status =
+                            crate::operations::OperationStatus::Completed;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        operation_clone.lock().await.status =
+                            crate::operations::OperationStatus::Failed(format!("{e}"));
+                        Err(anyhow::anyhow!("S3 copy failed: {e}"))
+                    }
+                }
             }
         }
     });

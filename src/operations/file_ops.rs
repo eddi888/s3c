@@ -105,13 +105,13 @@ impl App {
             // S3 → S3: Copy between buckets
             (
                 PanelType::S3Browser {
-                    profile: _source_profile,
+                    profile: source_profile,
                     bucket: source_bucket,
                     prefix: _source_prefix,
                 },
                 PanelType::S3Browser {
-                    profile: _dest_profile,
-                    bucket: _dest_bucket,
+                    profile: dest_profile,
+                    bucket: dest_bucket,
                     prefix: dest_prefix,
                 },
             ) => {
@@ -125,6 +125,7 @@ impl App {
                 }) = item
                 {
                     let source_key = &s3_obj.key;
+                    let file_size = s3_obj.size.max(0) as u64;
 
                     // Build destination key
                     let dest_key = if dest_prefix.is_empty() {
@@ -133,35 +134,22 @@ impl App {
                         format!("{dest_prefix}{name}")
                     };
 
-                    if let (Some(source_manager), Some(dest_manager)) =
-                        (&source_panel.s3_manager, &dest_panel.s3_manager)
-                    {
-                        // Try server-side copy first (works for same-bucket and cross-bucket)
-                        match dest_manager
-                            .copy_from_bucket(source_bucket, source_key, &dest_key)
-                            .await
-                        {
-                            Ok(_) => {
-                                self.show_success(&format!("Copied: {name}"));
-                                crate::app::navigation::reload_s3_browser(self).await?;
-                            }
-                            Err(_) => {
-                                // Fallback to stream-based copy (cross-account/region)
-                                match dest_manager
-                                    .stream_copy_from(source_manager, source_key, &dest_key)
-                                    .await
-                                {
-                                    Ok(_) => {
-                                        self.show_success(&format!("Copied: {name}"));
-                                        crate::app::navigation::reload_s3_browser(self).await?;
-                                    }
-                                    Err(e) => {
-                                        self.show_error(&format!("Copy failed: {e}"));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // Queue the S3→S3 copy operation
+                    let operation = FileOperation {
+                        operation_type: OperationType::S3Copy,
+                        source: format!("s3://{source_bucket}/{source_key}"),
+                        destination: format!("s3://{dest_bucket}/{dest_key}"),
+                        total_size: file_size,
+                        transferred: 0,
+                        status: OperationStatus::Pending,
+                        profile: Some(source_profile.clone()),
+                        bucket: Some(source_bucket.clone()),
+                        dest_profile: Some(dest_profile.clone()),
+                        dest_bucket: Some(dest_bucket.clone()),
+                    };
+
+                    self.file_operation_queue.push(operation);
+                    // Don't show success message yet - will show when copy completes
                 }
             }
 

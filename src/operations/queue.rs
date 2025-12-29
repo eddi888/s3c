@@ -4,6 +4,7 @@ pub enum OperationType {
     Upload,
     Download,
     Copy,
+    S3Copy, // S3 to S3 copy (cross-bucket or cross-provider)
     Rename,
 }
 
@@ -18,9 +19,7 @@ pub struct FileOperation {
     // S3 credentials info for queued transfers
     pub profile: Option<String>, // Source profile (Download/Upload) or Source profile (S3→S3)
     pub bucket: Option<String>,  // Source bucket (Download/Upload) or Source bucket (S3→S3)
-    #[allow(dead_code)] // Reserved for future queued S3→S3 copy feature
     pub dest_profile: Option<String>, // Destination profile (S3→S3 only)
-    #[allow(dead_code)] // Reserved for future queued S3→S3 copy feature
     pub dest_bucket: Option<String>, // Destination bucket (S3→S3 only)
 }
 
