@@ -363,8 +363,15 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
                 let mut operation = task.operation.lock().await;
                 operation.status = crate::operations::OperationStatus::Cancelled;
                 let operation_type = operation.operation_type.clone();
-                app.file_operation_queue = Some(operation.clone());
 
+                // Update current operation in queue
+                if let Some(index) = app.current_transfer_index {
+                    if let Some(op) = app.file_operation_queue.get_mut(index) {
+                        *op = operation.clone();
+                    }
+                }
+
+                app.current_transfer_index = None;
                 app.show_error("Transfer cancelled by user");
 
                 // Refresh panels to show partially transferred files
@@ -380,6 +387,86 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
                     }
                     _ => {}
                 }
+            }
+            Ok(None)
+        }
+        Message::ClearCompletedTransfers => {
+            // Remove all completed, failed, and cancelled transfers
+            app.file_operation_queue.retain(|op| {
+                !matches!(
+                    op.status,
+                    crate::operations::OperationStatus::Completed
+                        | crate::operations::OperationStatus::Failed(_)
+                        | crate::operations::OperationStatus::Cancelled
+                )
+            });
+
+            // Fix current_transfer_index after retain() shifts indices
+            if app.current_transfer_index.is_some() {
+                // Find the InProgress transfer and update its index
+                app.current_transfer_index = app
+                    .file_operation_queue
+                    .iter()
+                    .position(|op| op.status == crate::operations::OperationStatus::InProgress);
+            }
+
+            // Exit queue focus if queue is now empty
+            if app.file_operation_queue.is_empty() {
+                app.queue_focused = false;
+                app.selected_queue_index = 0;
+            }
+
+            Ok(None)
+        }
+        Message::DeleteFromQueue => {
+            // Delete the most recent non-running transfer
+            // Find last non-InProgress item
+            if let Some(pos) = app
+                .file_operation_queue
+                .iter()
+                .rposition(|op| op.status != crate::operations::OperationStatus::InProgress)
+            {
+                app.file_operation_queue.remove(pos);
+
+                // Fix current_transfer_index if it was affected by remove()
+                if let Some(current_idx) = app.current_transfer_index {
+                    if pos < current_idx {
+                        // Item was removed before current transfer, shift index down
+                        app.current_transfer_index = Some(current_idx - 1);
+                    } else if pos == current_idx {
+                        // Should not happen (we don't delete InProgress), but be safe
+                        app.current_transfer_index = None;
+                    }
+                }
+
+                // Exit queue focus if queue is now empty
+                if app.file_operation_queue.is_empty() {
+                    app.queue_focused = false;
+                    app.selected_queue_index = 0;
+                }
+            }
+            Ok(None)
+        }
+        Message::QueueNavigateUp => {
+            // Move selection up in display (towards newer items = higher index)
+            let max_index = app.file_operation_queue.len().saturating_sub(1);
+            app.selected_queue_index = (app.selected_queue_index + 1).min(max_index);
+            Ok(None)
+        }
+        Message::QueueNavigateDown => {
+            // Move selection down in display (towards older items = lower index)
+            if !app.file_operation_queue.is_empty() {
+                app.selected_queue_index = app.selected_queue_index.saturating_sub(1);
+            }
+            Ok(None)
+        }
+        Message::ToggleQueueFocus => {
+            // Toggle queue focus on/off
+            app.queue_focused = !app.queue_focused;
+
+            // When unfocusing, reset selection to 0
+            if !app.queue_focused {
+                app.selected_queue_index = 0;
             }
             Ok(None)
         }

@@ -1,11 +1,8 @@
 use crate::app::{App, InputMode, PanelType, Screen};
 use crate::models::list::{ItemData, ItemType, PanelItem};
-use crate::operations::s3::ProgressCallback;
 use crate::operations::{FileOperation, OperationStatus, OperationType};
 use anyhow::Result;
 use std::path::PathBuf;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 impl App {
     /// Copy file from active panel to inactive panel
@@ -22,7 +19,14 @@ impl App {
 
         match (&source_type, &dest_type) {
             // S3 → Local: Download file
-            (PanelType::S3Browser { prefix: _, .. }, PanelType::LocalFilesystem { path }) => {
+            (
+                PanelType::S3Browser {
+                    profile,
+                    bucket,
+                    prefix: _,
+                },
+                PanelType::LocalFilesystem { path },
+            ) => {
                 let item = source_panel.list_model.get_item(source_selected);
 
                 if let Some(PanelItem {
@@ -37,74 +41,35 @@ impl App {
                     let key = s3_obj.key.clone();
                     let file_size = s3_obj.size as u64;
 
-                    // Create file operation
-                    let operation = Arc::new(Mutex::new(FileOperation {
+                    // Queue-First: Always add to queue as Pending
+                    // Queue processing will start the transfer automatically
+                    let operation = FileOperation {
                         operation_type: OperationType::Download,
                         source: key.clone(),
                         destination: local_path.display().to_string(),
                         total_size: file_size,
                         transferred: 0,
-                        status: OperationStatus::InProgress,
-                    }));
+                        status: OperationStatus::Pending, // Always Pending
+                        profile: Some(profile.clone()),
+                        bucket: Some(bucket.clone()),
+                        dest_profile: None,
+                        dest_bucket: None,
+                    };
 
-                    // Store in queue for UI display
-                    self.file_operation_queue = Some((*operation.lock().await).clone());
-
-                    // Clone s3_manager to avoid borrow conflicts
-                    let s3_manager = source_panel.s3_manager.clone();
-
-                    if let Some(s3_manager) = s3_manager {
-                        // Use AtomicU64 for thread-safe progress tracking
-                        let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
-                        let transferred_clone = transferred_counter.clone();
-
-                        let progress_callback: ProgressCallback =
-                            Arc::new(Mutex::new(move |transferred: u64| {
-                                transferred_clone
-                                    .store(transferred, std::sync::atomic::Ordering::Relaxed);
-                            }));
-
-                        // Spawn download in background task
-                        let key_clone = key.clone();
-                        let local_path_clone = local_path.clone();
-                        let operation_clone = operation.clone();
-
-                        let task_handle = tokio::spawn(async move {
-                            let result = s3_manager
-                                .download_file_with_progress(
-                                    &key_clone,
-                                    &local_path_clone,
-                                    Some(progress_callback),
-                                )
-                                .await;
-
-                            // Update operation status
-                            match result {
-                                Ok(_) => {
-                                    operation_clone.lock().await.status =
-                                        OperationStatus::Completed;
-                                    Ok(())
-                                }
-                                Err(e) => {
-                                    operation_clone.lock().await.status =
-                                        OperationStatus::Failed(format!("{e}"));
-                                    Err(anyhow::anyhow!("Download failed: {e}"))
-                                }
-                            }
-                        });
-
-                        // Store background task for UI to poll
-                        self.background_transfer_task = Some(crate::app::BackgroundTransferTask {
-                            task_handle,
-                            progress_counter: transferred_counter,
-                            operation,
-                        });
-                    }
+                    // Add to queue - queue processing handles the rest
+                    self.file_operation_queue.push(operation);
                 }
             }
 
             // Local → S3: Upload file (prompt for path)
-            (PanelType::LocalFilesystem { path: _ }, PanelType::S3Browser { prefix, .. }) => {
+            (
+                PanelType::LocalFilesystem { path: _ },
+                PanelType::S3Browser {
+                    profile: _,
+                    bucket: _,
+                    prefix,
+                },
+            ) => {
                 let item = source_panel.list_model.get_item(source_selected);
 
                 if let Some(PanelItem {
@@ -140,13 +105,14 @@ impl App {
             // S3 → S3: Copy between buckets
             (
                 PanelType::S3Browser {
+                    profile: _source_profile,
                     bucket: source_bucket,
                     prefix: _source_prefix,
-                    ..
                 },
                 PanelType::S3Browser {
+                    profile: _dest_profile,
+                    bucket: _dest_bucket,
                     prefix: dest_prefix,
-                    ..
                 },
             ) => {
                 let item = source_panel.list_model.get_item(source_selected);
@@ -223,15 +189,20 @@ impl App {
                     let dest_file_path = dest_path.join(&name);
                     let file_size = size.unwrap_or(0);
 
-                    // Create file operation
-                    self.file_operation_queue = Some(FileOperation {
+                    // Create file operation and add to queue
+                    self.file_operation_queue.push(FileOperation {
                         operation_type: OperationType::Copy,
                         source: source_file_path.display().to_string(),
                         destination: dest_file_path.display().to_string(),
                         total_size: file_size,
                         transferred: 0,
                         status: OperationStatus::InProgress,
+                        profile: None, // Local copy doesn't need S3 credentials
+                        bucket: None,
+                        dest_profile: None,
+                        dest_bucket: None,
                     });
+                    let queue_index = self.file_operation_queue.len() - 1;
 
                     let result = self
                         .copy_local_file_with_progress(&source_file_path, &dest_file_path)
@@ -239,14 +210,14 @@ impl App {
 
                     match result {
                         Ok(_) => {
-                            if let Some(op) = &mut self.file_operation_queue {
+                            if let Some(op) = self.file_operation_queue.get_mut(queue_index) {
                                 op.status = OperationStatus::Completed;
                             }
                             self.show_success(&format!("Copied: {name}"));
                             crate::app::navigation::reload_local_files(self).await?;
                         }
                         Err(e) => {
-                            if let Some(op) = &mut self.file_operation_queue {
+                            if let Some(op) = self.file_operation_queue.get_mut(queue_index) {
                                 op.status = OperationStatus::Failed(format!("{e}"));
                             }
                             let error_msg = format!("{e}");
@@ -296,7 +267,8 @@ impl App {
             dest_file.write_all(&buffer[..bytes_read]).await?;
             total_copied += bytes_read as u64;
 
-            if let Some(op) = &mut self.file_operation_queue {
+            // Update progress in queue (last item is the current copy operation)
+            if let Some(op) = self.file_operation_queue.last_mut() {
                 op.transferred = total_copied;
             }
         }

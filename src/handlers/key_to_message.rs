@@ -38,6 +38,34 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
                 None
             }
         }
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            // Clear completed transfers
+            if !app.file_operation_queue.is_empty() {
+                Some(Message::ClearCompletedTransfers)
+            } else {
+                None
+            }
+        }
+        KeyCode::Char('q') | KeyCode::Char('Q') if !app.file_operation_queue.is_empty() => {
+            // Toggle queue focus (only when queue visible)
+            Some(Message::ToggleQueueFocus)
+        }
+        KeyCode::Char('d') | KeyCode::Char('D') if app.queue_focused => {
+            // Delete selected from queue (only when queue focused)
+            Some(Message::DeleteFromQueue)
+        }
+        KeyCode::Up if app.queue_focused => {
+            // Navigate up in queue (only when queue focused)
+            Some(Message::QueueNavigateUp)
+        }
+        KeyCode::Down if app.queue_focused => {
+            // Navigate down in queue (only when queue focused)
+            Some(Message::QueueNavigateDown)
+        }
+        KeyCode::Esc if app.queue_focused => {
+            // Unfocus queue with ESC
+            Some(Message::ToggleQueueFocus)
+        }
         KeyCode::Char('q') | KeyCode::F(10) => Some(Message::Quit),
         KeyCode::Char('?') | KeyCode::F(1) => Some(Message::ShowHelp),
         KeyCode::F(12) => Some(Message::ToggleLocalFilesystem),

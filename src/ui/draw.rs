@@ -40,7 +40,16 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
 fn draw_dual_panel(f: &mut Frame, app: &mut App) {
     // Check if queue is active to adjust layout
-    let has_queue = app.file_operation_queue.is_some();
+    let has_queue = !app.file_operation_queue.is_empty();
+
+    // Calculate dynamic queue height: 2 lines per operation + 2 for border
+    // Max 5 operations visible (10 lines + 2 border = 12 lines max)
+    let queue_height = if has_queue {
+        let num_ops = app.file_operation_queue.len().min(5);
+        (num_ops * 2 + 2) as u16
+    } else {
+        0
+    };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -48,7 +57,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
             vec![
                 Constraint::Length(3),
                 Constraint::Min(0),
-                Constraint::Length(4), // Queue area
+                Constraint::Length(queue_height), // Dynamic queue area
                 Constraint::Length(1),
             ]
         } else {

@@ -37,14 +37,33 @@ Ein Midnight Commander-inspiriertes Terminal User Interface (TUI) für S3-Dateiv
   - Forward/Backward Modus für effiziente Navigation
 - ⬇️ **Download** - S3 → Local mit Pfad-Eingabe
 - ⬆️ **Upload** - Local → S3 mit Ziel-Pfad-Eingabe
-  - Hintergrund-Transfers mit Fortschrittsanzeige
-  - Transfer-Abbruch mit 'x'-Taste möglich
 - 📁 **S3 Folder Creation** - Erstellen von S3 "Ordnern" (Prefix-Marker)
 - ✏️ **Rename** - Umbenennen von Dateien und Ordnern (S3/Local)
 - 🔍 **Filter** - Filterung nach Namen in allen Listen
 - 📊 **Sort** - Sortierung nach Name, Size oder Date (auf-/absteigend)
 - 🗑️ **Delete** - Löschen von S3-Objekten und lokalen Dateien
 - 🔙 **Back Navigation** - ".." Einträge für intuitive Navigation
+
+### 🔄 Transfer Queue System
+- 📋 **Multi-Transfer Queue** - Mehrere Downloads/Uploads parallel verwalten
+  - Queue-First Design: F5 reiht Transfers immer in Queue ein
+  - Automatische Abarbeitung: Nächster Transfer startet automatisch
+  - Queue zeigt bis zu 5 Transfers gleichzeitig an (dynamische Höhe)
+- 🔐 **Credentials-Context** - Jeder Transfer berücksichtigt seine AWS Credentials
+  - Transfers laufen mit korrekten Credentials auch nach Profilwechsel
+  - Profile und Bucket-Info wird pro Transfer berücksichtigt
+- 🎯 **Queue Navigation** - Fokussierbare Queue mit Scroll-Funktion
+  - `q` - Queue fokussieren/verlassen (Border wird Cyan)
+  - `↑/↓` - Durch Queue scrollen wenn fokussiert
+  - `x` - Laufenden Transfer abbrechen
+  - `d` - Selected Transfer aus Queue löschen (nur wenn Queue fokussiert)
+  - `c` - Alle abgeschlossenen Transfers aus Queue entfernen
+  - ESC - Queue-Fokus verlassen
+- 📊 **Live Progress** - Echtzeit-Fortschrittsanzeige für alle Transfers
+  - Status-Icons: ⏸ Pending, ⟳ In Progress, ✓ Completed, ✗ Failed, ⊗ Cancelled
+  - Prozentanzeige und Fortschrittsbalken
+  - Dateigrößen-Anzeige (übertragen / gesamt)
+- ⚡ **Performance** - Optimiert für flüssige Bedienung (25ms Event-Polling)
 
 ### 🛡️ Robustheit
 - ⚠️ **Error Handling** - Graceful handling von NoSuchBucket, AccessDenied, Permission denied
@@ -232,10 +251,21 @@ Die Anwendung startet mit zwei Panels:
 - **F2** - Sortierung ändern
 - **F3** - Lokale Datei anzeigen
 - **F4** - Filter nach Namen
-- **F5** - Upload zu S3 Panel
+- **F5** - Upload zu S3 Panel (reiht in Queue ein)
 - **F6** - Datei/Ordner umbenennen
 - **F8** - Lokale Datei löschen
 - **..** - Zum Parent-Verzeichnis
+
+**Transfer Queue:**
+- Erscheint automatisch bei aktiven Transfers am unteren Bildschirmrand
+- Zeigt bis zu 5 Transfers gleichzeitig (scrollbar bei mehr)
+- Dynamische Höhe: 4-12 Zeilen je nach Anzahl der Transfers
+- **q** - Queue fokussieren für Navigation
+- **↑/↓** - Durch Queue scrollen (nur wenn fokussiert)
+- **d** - Selected Transfer löschen (nur wenn fokussiert)
+- **c** - Completed Transfers entfernen (immer verfügbar)
+- **x** - Laufenden Transfer abbrechen (immer verfügbar)
+- **ESC** - Queue-Fokus verlassen
 
 **File Preview (F3):**
 - **↑/↓** - Zeile für Zeile scrollen (inkl. umgebrochene Zeilen)
@@ -265,11 +295,18 @@ Die Anwendung startet mit zwei Panels:
 
 ### Navigation
 - **Tab** - Zwischen Panels wechseln
-- **↑/↓** - Hoch/Runter in Listen
+- **↑/↓** - Hoch/Runter in Listen (oder Queue-Scrolling wenn Queue fokussiert)
 - **PgUp/PgDn** - Seitenweise scrollen (basierend auf Panel-Höhe)
 - **Enter** - Auswahl bestätigen / Ordner öffnen
-- **Esc** - Zurück / Abbrechen
+- **Esc** - Zurück / Abbrechen / Queue-Fokus verlassen
 - **F** - Switch to local Filesystem (von ProfileList)
+
+### Transfer Queue
+- **q** - Queue fokussieren/verlassen (Border wird Cyan wenn fokussiert)
+- **↑/↓** (im Queue-Fokus) - Durch Queue-Einträge scrollen
+- **x** - Laufenden Transfer abbrechen
+- **d** (im Queue-Fokus) - Selected Transfer aus Queue löschen
+- **c** - Alle completed/failed/cancelled Transfers entfernen
 
 ### Input-Dialoge
 - **Enter** - Eingabe bestätigen

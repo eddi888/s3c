@@ -52,6 +52,11 @@ pub enum Message {
 
     // ===== File Operations =====
     CancelTransfer,
+    ClearCompletedTransfers,
+    DeleteFromQueue,
+    QueueNavigateUp,
+    QueueNavigateDown,
+    ToggleQueueFocus,
 
     // ===== Delete Confirmation =====
     ShowDeleteConfirmation {

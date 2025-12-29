@@ -84,8 +84,10 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             let current = task
                 .progress_counter
                 .load(std::sync::atomic::Ordering::Relaxed);
-            if let Some(ref mut queue) = app.file_operation_queue {
-                queue.transferred = current;
+            if let Some(index) = app.current_transfer_index {
+                if let Some(op) = app.file_operation_queue.get_mut(index) {
+                    op.transferred = current;
+                }
             }
 
             // Check if task is finished
@@ -98,7 +100,12 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                     operation.transferred = operation.total_size;
                 }
 
-                app.file_operation_queue = Some(operation.clone());
+                // Update current operation in queue
+                if let Some(index) = app.current_transfer_index {
+                    if let Some(op) = app.file_operation_queue.get_mut(index) {
+                        *op = operation.clone();
+                    }
+                }
 
                 // Handle completion/error
                 match operation.status {
@@ -120,7 +127,16 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                     }
                     _ => {}
                 }
+
+                // Start next queued transfer if available
+                app.current_transfer_index = None;
+                start_next_queued_transfer(app).await?;
             }
+        }
+
+        // Check if no transfer is running but queue has pending items
+        if app.background_transfer_task.is_none() && app.current_transfer_index.is_none() {
+            start_next_queued_transfer(app).await?;
         }
 
         terminal.draw(|f| ui::draw(f, app))?;
@@ -129,7 +145,7 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             break;
         }
 
-        if event::poll(std::time::Duration::from_millis(100))? {
+        if event::poll(std::time::Duration::from_millis(25))? {
             if let Event::Key(key) = event::read()? {
                 // Ignore key release events (Windows sends both press and release)
                 if key.kind != KeyEventKind::Press {
@@ -149,4 +165,228 @@ pub async fn run_app<B: ratatui::backend::Backend>(
     }
 
     Ok(())
+}
+
+/// Start the next queued transfer if any are pending
+async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    // Find next pending operation in queue
+    let next_pending_index = app
+        .file_operation_queue
+        .iter()
+        .position(|op| op.status == crate::operations::OperationStatus::Pending);
+
+    if let Some(index) = next_pending_index {
+        // Get operation details
+        let op = app.file_operation_queue[index].clone();
+
+        // Mark as in progress
+        app.file_operation_queue[index].status = crate::operations::OperationStatus::InProgress;
+        app.current_transfer_index = Some(index);
+
+        // Create Arc<Mutex<FileOperation>> for task
+        let operation = Arc::new(Mutex::new(op.clone()));
+
+        // Start transfer based on operation type
+        match op.operation_type {
+            crate::operations::OperationType::Download => {
+                // Download: S3 → Local
+                if let (Some(profile), Some(bucket)) = (&op.profile, &op.bucket) {
+                    // Get bucket config to retrieve credentials info
+                    let bucket_config = app
+                        .config_manager
+                        .get_buckets_for_profile(profile)
+                        .into_iter()
+                        .find(|b| &b.name == bucket);
+
+                    if let Some(config) = bucket_config {
+                        // Create S3Manager with stored credentials
+                        match crate::operations::s3::S3Manager::new(
+                            profile,
+                            bucket.clone(),
+                            config.role_chain.clone(),
+                            &config.region,
+                            config.endpoint_url.as_deref(),
+                            config.path_style,
+                        )
+                        .await
+                        {
+                            Ok(s3_manager) => {
+                                start_download_task(
+                                    app,
+                                    operation,
+                                    s3_manager,
+                                    op.source.clone(),
+                                    op.destination.clone(),
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                app.file_operation_queue[index].status =
+                                    crate::operations::OperationStatus::Failed(format!(
+                                        "S3Manager creation failed: {e}"
+                                    ));
+                                app.current_transfer_index = None;
+                            }
+                        }
+                    } else {
+                        app.file_operation_queue[index].status =
+                            crate::operations::OperationStatus::Failed(
+                                "Bucket config not found".to_string(),
+                            );
+                        app.current_transfer_index = None;
+                    }
+                }
+            }
+            crate::operations::OperationType::Upload => {
+                // Upload: Local → S3
+                if let (Some(profile), Some(bucket)) = (&op.profile, &op.bucket) {
+                    let bucket_config = app
+                        .config_manager
+                        .get_buckets_for_profile(profile)
+                        .into_iter()
+                        .find(|b| &b.name == bucket);
+
+                    if let Some(config) = bucket_config {
+                        match crate::operations::s3::S3Manager::new(
+                            profile,
+                            bucket.clone(),
+                            config.role_chain.clone(),
+                            &config.region,
+                            config.endpoint_url.as_deref(),
+                            config.path_style,
+                        )
+                        .await
+                        {
+                            Ok(s3_manager) => {
+                                start_upload_task(
+                                    app,
+                                    operation,
+                                    s3_manager,
+                                    op.source.clone(),
+                                    op.destination.clone(),
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                app.file_operation_queue[index].status =
+                                    crate::operations::OperationStatus::Failed(format!(
+                                        "S3Manager creation failed: {e}"
+                                    ));
+                                app.current_transfer_index = None;
+                            }
+                        }
+                    } else {
+                        app.file_operation_queue[index].status =
+                            crate::operations::OperationStatus::Failed(
+                                "Bucket config not found".to_string(),
+                            );
+                        app.current_transfer_index = None;
+                    }
+                }
+            }
+            _ => {
+                // Other operation types not supported in queue yet
+                app.file_operation_queue[index].status = crate::operations::OperationStatus::Failed(
+                    "Operation type not supported in queue".to_string(),
+                );
+                app.current_transfer_index = None;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn start_download_task(
+    app: &mut App,
+    operation: std::sync::Arc<tokio::sync::Mutex<crate::operations::FileOperation>>,
+    s3_manager: crate::operations::s3::S3Manager,
+    s3_key: String,
+    local_path: String,
+) {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let transferred_clone = transferred_counter.clone();
+
+    let progress_callback: crate::operations::s3::ProgressCallback =
+        Arc::new(tokio::sync::Mutex::new(move |transferred: u64| {
+            transferred_clone.store(transferred, std::sync::atomic::Ordering::Relaxed);
+        }));
+
+    let operation_clone = operation.clone();
+    let local_path_buf = PathBuf::from(local_path);
+    let task_handle = tokio::spawn(async move {
+        let result = s3_manager
+            .download_file_with_progress(&s3_key, &local_path_buf, Some(progress_callback))
+            .await;
+
+        match result {
+            Ok(_) => {
+                operation_clone.lock().await.status = crate::operations::OperationStatus::Completed;
+                Ok(())
+            }
+            Err(e) => {
+                operation_clone.lock().await.status =
+                    crate::operations::OperationStatus::Failed(format!("{e}"));
+                Err(anyhow::anyhow!("Download failed: {e}"))
+            }
+        }
+    });
+
+    app.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+        task_handle,
+        progress_counter: transferred_counter,
+        operation,
+    });
+}
+
+async fn start_upload_task(
+    app: &mut App,
+    operation: std::sync::Arc<tokio::sync::Mutex<crate::operations::FileOperation>>,
+    s3_manager: crate::operations::s3::S3Manager,
+    local_path: String,
+    s3_key: String,
+) {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let transferred_clone = transferred_counter.clone();
+
+    let progress_callback: crate::operations::s3::ProgressCallback =
+        Arc::new(tokio::sync::Mutex::new(move |transferred: u64| {
+            transferred_clone.store(transferred, std::sync::atomic::Ordering::Relaxed);
+        }));
+
+    let operation_clone = operation.clone();
+    let path = PathBuf::from(local_path);
+
+    let task_handle = tokio::spawn(async move {
+        let result = s3_manager
+            .upload_file_with_progress(&path, &s3_key, Some(progress_callback))
+            .await;
+
+        match result {
+            Ok(_) => {
+                operation_clone.lock().await.status = crate::operations::OperationStatus::Completed;
+                Ok(())
+            }
+            Err(e) => {
+                operation_clone.lock().await.status =
+                    crate::operations::OperationStatus::Failed(format!("{e}"));
+                Err(anyhow::anyhow!("Upload failed: {e}"))
+            }
+        }
+    });
+
+    app.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+        task_handle,
+        progress_counter: transferred_counter,
+        operation,
+    });
 }

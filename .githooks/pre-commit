@@ -1,13 +1,27 @@
 #!/bin/bash
 
-echo "Running cargo fmt check..."
+# Find the directory containing Cargo.toml
+# Handle both: running from repo root and from s3c submodule
+REPO_ROOT=$(git rev-parse --show-toplevel)
+if [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    # Already in s3c directory
+    cd "$REPO_ROOT" || exit 1
+elif [ -d "$REPO_ROOT/s3c" ]; then
+    # In parent repo, need to go to s3c
+    cd "$REPO_ROOT/s3c" || exit 1
+else
+    echo "Error: Cannot find s3c directory with Cargo.toml"
+    exit 1
+fi
+
+echo "Running cargo fmt check in s3c/..."
 cargo fmt --all -- --check
 if [ $? -ne 0 ]; then
     echo "Formatting check failed. Please run 'cargo fmt' to fix formatting issues."
     exit 1
 fi
 
-echo "Running cargo clippy..."
+echo "Running cargo clippy in s3c/..."
 cargo clippy -- -D warnings
 if [ $? -ne 0 ]; then
     echo "Clippy check failed. Please fix the issues above."

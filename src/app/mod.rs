@@ -94,8 +94,11 @@ pub struct App {
     pub sort_dialog: SortDialogState,
     pub script: ScriptState,
 
-    // File Operations
-    pub file_operation_queue: Option<FileOperation>,
+    // File Operations Queue
+    pub file_operation_queue: Vec<FileOperation>,
+    pub current_transfer_index: Option<usize>,
+    pub selected_queue_index: usize,
+    pub queue_focused: bool, // Whether queue panel has focus for navigation
     pub background_transfer_task: Option<BackgroundTransferTask>,
 }
 
@@ -167,7 +170,10 @@ impl App {
             input: InputState::default(),
             sort_dialog: SortDialogState::default(),
             script: ScriptState::default(),
-            file_operation_queue: None,
+            file_operation_queue: Vec::new(),
+            current_transfer_index: None,
+            selected_queue_index: 0,
+            queue_focused: false, // Start unfocused
             background_transfer_task: None,
         };
 

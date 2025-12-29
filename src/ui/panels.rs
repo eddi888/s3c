@@ -68,7 +68,7 @@ pub fn draw_panel(
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD)
                     } else if matches!(item.item_type, ItemType::ParentDir) {
-                        Style::default().fg(Color::Blue)
+                        Style::default().fg(Color::LightBlue)
                     } else {
                         Style::default()
                     };
@@ -157,7 +157,7 @@ pub fn draw_panel(
                             .fg(Color::Yellow)
                             .add_modifier(Modifier::BOLD)
                     } else if matches!(item.item_type, ItemType::ParentDir) {
-                        Style::default().fg(Color::Blue)
+                        Style::default().fg(Color::LightBlue)
                     } else {
                         Style::default()
                     };
@@ -210,7 +210,7 @@ pub fn draw_panel(
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
                 } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
-                    Style::default().fg(Color::Blue)
+                    Style::default().fg(Color::LightBlue)
                 } else {
                     Style::default()
                 };
@@ -254,7 +254,7 @@ pub fn draw_panel(
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD)
                 } else if matches!(item.item_type, ItemType::Directory | ItemType::ParentDir) {
-                    Style::default().fg(Color::Blue)
+                    Style::default().fg(Color::LightBlue)
                 } else {
                     Style::default()
                 };

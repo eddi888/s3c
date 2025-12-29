@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph},
     Frame,
 };
@@ -9,29 +9,105 @@ use super::helpers::format_size;
 use crate::app::App;
 
 pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
-    if let Some(ref operation) = app.file_operation_queue {
-        // Add cancel hint if transfer is in progress
-        let title = if app.background_transfer_task.is_some()
-            && operation.status == crate::operations::OperationStatus::InProgress
-        {
-            "File Operations Queue - Press 'x' to cancel"
-        } else {
-            "File Operations Queue"
-        };
+    if app.file_operation_queue.is_empty() {
+        return;
+    }
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(Style::default().fg(Color::Yellow));
+    // Count running and queued transfers
+    let running_count = app
+        .file_operation_queue
+        .iter()
+        .filter(|op| op.status == crate::operations::OperationStatus::InProgress)
+        .count();
+    let queued_count = app
+        .file_operation_queue
+        .iter()
+        .filter(|op| op.status == crate::operations::OperationStatus::Pending)
+        .count();
 
-        let inner = block.inner(area);
-        f.render_widget(block, area);
+    // Build title with counts, scroll position, and hints
+    let total_ops = app.file_operation_queue.len();
+    let scroll_info = if total_ops > 5 {
+        format!(
+            " [{}/{}]",
+            app.selected_queue_index.saturating_add(1).min(total_ops),
+            total_ops
+        )
+    } else {
+        String::new()
+    };
 
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(0)
-            .constraints([Constraint::Length(1), Constraint::Length(1)])
-            .split(inner);
+    let focus_indicator = if app.queue_focused { " [FOCUSED]" } else { "" };
+
+    let title = if running_count > 0 {
+        format!(
+            "File Operations ({running_count} running, {queued_count} queued){scroll_info}{focus_indicator} - 'q' focus | '↑↓' scroll | 'x' cancel | 'd' delete | 'c' clear"
+        )
+    } else {
+        format!(
+            "File Operations ({queued_count} queued){scroll_info}{focus_indicator} - 'q' focus | '↑↓' scroll | 'd' delete | 'c' clear"
+        )
+    };
+
+    let border_color = if app.queue_focused {
+        Color::Cyan // Highlighted border when focused
+    } else {
+        Color::Yellow
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(title)
+        .border_style(Style::default().fg(border_color));
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    // Calculate constraints for each operation (2 lines each)
+    // Show max 5 operations (newest first)
+    let num_operations = app.file_operation_queue.len().min(5);
+    let mut constraints = vec![];
+    for _ in 0..num_operations {
+        constraints.push(Constraint::Length(1)); // Info line
+        constraints.push(Constraint::Length(1)); // Progress bar
+    }
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(0)
+        .constraints(constraints)
+        .split(inner);
+
+    // Calculate scroll window: show 5 operations centered around selected_queue_index
+    let total_count = app.file_operation_queue.len();
+    let selected = app.selected_queue_index.min(total_count.saturating_sub(1));
+
+    // Calculate window start (try to center selected item)
+    let window_start = if total_count <= 5 {
+        0
+    } else {
+        // Center the selected item in the window
+        selected
+            .saturating_sub(2)
+            .min(total_count.saturating_sub(5))
+    };
+
+    let window_end = (window_start + 5).min(total_count);
+
+    // Draw operations in window (reversed order - newest first)
+    for (i, operation) in app
+        .file_operation_queue
+        .iter()
+        .rev()
+        .skip(total_count.saturating_sub(window_end))
+        .take(window_end - window_start)
+        .enumerate()
+    {
+        let chunk_idx = i * 2;
+
+        // Calculate actual index in reversed queue
+        let actual_rev_index = total_count.saturating_sub(window_end) + i;
+        let is_selected = (total_count - 1 - actual_rev_index) == selected;
 
         // Operation info line
         let op_type = match operation.operation_type {
@@ -62,25 +138,39 @@ pub fn draw_file_operation_queue(f: &mut Frame, app: &App, area: Rect) {
         let total_str = format_size(operation.total_size);
         let percentage = operation.progress_percentage();
 
+        // Add selection indicator if this is the selected item
+        let selection_mark = if is_selected { "►" } else { " " };
+
         let info_text = format!(
-            "{} {} │ {} → {} │ {} / {} ({:3}%)",
+            "{} {} {} │ {} → {} │ {} / {} ({:3}%)",
+            selection_mark,
             status_icon,
             op_type,
-            truncate_filename(&operation.source, 25),
-            truncate_filename(&operation.destination, 25),
+            truncate_filename(&operation.source, 18),
+            truncate_filename(&operation.destination, 18),
             transferred_str,
             total_str,
             percentage
         );
 
-        let info = Paragraph::new(info_text).style(Style::default().fg(status_color));
-        f.render_widget(info, chunks[0]);
+        let info_style = if is_selected {
+            // High contrast: Black background + bright White text + BOLD
+            Style::default()
+                .fg(Color::White)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(status_color)
+        };
+
+        let info = Paragraph::new(info_text).style(info_style);
+        f.render_widget(info, chunks[chunk_idx]);
 
         // Progress bar
-        let progress_bar = draw_progress_bar(percentage, chunks[1].width as usize);
+        let progress_bar = draw_progress_bar(percentage, chunks[chunk_idx + 1].width as usize);
         let progress =
             Paragraph::new(progress_bar).style(Style::default().fg(Color::Cyan).bg(Color::Black));
-        f.render_widget(progress, chunks[1]);
+        f.render_widget(progress, chunks[chunk_idx + 1]);
     }
 }
 
