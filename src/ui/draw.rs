@@ -121,6 +121,30 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
     } else {
         // Normal Mode
         match &active_panel.panel_type {
+            PanelType::ModeSelection => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", ""),
+                ("04", "Filter"),
+                ("05", ""),
+                ("06", ""),
+                ("07", ""),
+                ("08", ""),
+                ("09", ""),
+                ("10", "Quit"),
+            ],
+            PanelType::DriveSelection => vec![
+                ("01", "Help"),
+                ("02", "Sort"),
+                ("03", ""),
+                ("04", "Filter"),
+                ("05", ""),
+                ("06", ""),
+                ("07", ""),
+                ("08", ""),
+                ("09", ""),
+                ("10", "Quit"),
+            ],
             PanelType::ProfileList => vec![
                 ("01", "Help"),
                 ("02", "Sort"),

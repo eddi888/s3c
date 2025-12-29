@@ -2,17 +2,73 @@ use super::LocalFile;
 use crate::models::list::{ItemData, ItemType, PanelItem};
 use crate::operations::s3::S3Object;
 
-pub fn profiles_to_items(profiles: &[String]) -> Vec<PanelItem> {
-    profiles
-        .iter()
-        .map(|profile| PanelItem {
-            name: profile.clone(),
+pub fn modes_to_items() -> Vec<PanelItem> {
+    vec![
+        PanelItem {
+            name: "S3 Storage".to_string(),
             item_type: ItemType::Directory,
             size: None,
             modified: None,
-            data: ItemData::Profile(profile.clone()),
-        })
-        .collect()
+            data: ItemData::Mode("s3".to_string()),
+        },
+        PanelItem {
+            name: "Local Filesystem".to_string(),
+            item_type: ItemType::Directory,
+            size: None,
+            modified: None,
+            data: ItemData::Mode("local".to_string()),
+        },
+    ]
+}
+
+#[allow(dead_code)]
+pub fn drives_to_items(drives: Vec<std::path::PathBuf>) -> Vec<PanelItem> {
+    let mut items = vec![PanelItem {
+        name: "..".to_string(),
+        item_type: ItemType::ParentDir,
+        size: None,
+        modified: None,
+        data: ItemData::Drive(std::path::PathBuf::from("..")),
+    }];
+
+    items.extend(drives.into_iter().map(|drive| {
+        let drive_letter = drive
+            .to_string_lossy()
+            .chars()
+            .next()
+            .unwrap_or('?')
+            .to_string();
+
+        PanelItem {
+            name: format!("{drive_letter}: Drive"),
+            item_type: ItemType::Directory,
+            size: None,
+            modified: None,
+            data: ItemData::Drive(drive),
+        }
+    }));
+
+    items
+}
+
+pub fn profiles_to_items(profiles: &[String]) -> Vec<PanelItem> {
+    let mut items = vec![PanelItem {
+        name: "..".to_string(),
+        item_type: ItemType::ParentDir,
+        size: None,
+        modified: None,
+        data: ItemData::Profile("..".to_string()),
+    }];
+
+    items.extend(profiles.iter().map(|profile| PanelItem {
+        name: profile.clone(),
+        item_type: ItemType::Directory,
+        size: None,
+        modified: None,
+        data: ItemData::Profile(profile.clone()),
+    }));
+
+    items
 }
 
 pub fn buckets_to_items(buckets: Vec<crate::models::config::BucketConfig>) -> Vec<PanelItem> {

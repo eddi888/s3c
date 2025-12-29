@@ -12,8 +12,14 @@ pub async fn show_file_content_preview(app: &mut App, source: PreviewSource) -> 
             Ok(())
         }
         Err(e) => {
-            app.show_error(&format!("Cannot preview file: {e}"));
-            Err(e)
+            // Show error dialog but don't propagate error (prevents crash)
+            let error_msg = if e.to_string().contains("UTF-8") {
+                "Cannot preview binary file. This file contains non-text data.".to_string()
+            } else {
+                format!("Cannot preview file: {e}")
+            };
+            app.show_error(&error_msg);
+            Ok(()) // Return Ok to prevent crash
         }
     }
 }

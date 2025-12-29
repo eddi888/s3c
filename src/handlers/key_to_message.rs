@@ -52,6 +52,8 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::F(2) => Some(Message::ShowSortDialog),
         KeyCode::F(4) => Some(Message::ShowFilterPrompt),
         KeyCode::F(7) => match active_panel_type {
+            PanelType::ModeSelection => None,
+            PanelType::DriveSelection => None,
             PanelType::BucketList { .. } => Some(Message::ShowConfigForm),
             PanelType::S3Browser { .. } | PanelType::LocalFilesystem { .. } => {
                 Some(Message::ShowCreateFolderPrompt)
@@ -59,6 +61,8 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
             _ => None,
         },
         KeyCode::F(3) => match active_panel_type {
+            PanelType::ModeSelection => None,
+            PanelType::DriveSelection => None,
             PanelType::ProfileList => Some(Message::ShowProfileConfigForm),
             PanelType::BucketList { .. } => Some(Message::EditBucketConfig),
             PanelType::S3Browser { .. } | PanelType::LocalFilesystem { .. } => {
@@ -138,7 +142,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::End => Some(Message::ConfigFormEnd),
         KeyCode::Delete => Some(Message::ConfigFormDelete),
         KeyCode::Char('+') => {
-            let button_field = app.config_form.roles.len() + 4;
+            let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6
             if app.config_form.field >= button_field {
                 Some(Message::ConfigFormAddRole)
             } else {
@@ -146,7 +150,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
             }
         }
         KeyCode::Char('-') => {
-            let button_field = app.config_form.roles.len() + 4;
+            let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6
             if app.config_form.field >= button_field {
                 Some(Message::ConfigFormRemoveRole)
             } else {
@@ -156,7 +160,7 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::Char(c) => Some(Message::ConfigFormChar { c }),
         KeyCode::Backspace => Some(Message::ConfigFormBackspace),
         KeyCode::Enter => {
-            let button_field = app.config_form.roles.len() + 4;
+            let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6
             if app.config_form.field == button_field {
                 Some(Message::SaveConfigForm)
             } else if app.config_form.field == button_field + 1 {

@@ -9,6 +9,8 @@ pub struct ConfigFormState {
     pub description: String,
     pub region: String,
     pub roles: Vec<String>,
+    pub endpoint_url: String,
+    pub path_style: bool,
     pub field: usize,
     pub cursor: usize,
 }

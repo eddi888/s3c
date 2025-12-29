@@ -8,33 +8,101 @@ pub async fn enter_selected(app: &mut App) -> Result<()> {
     let selected_index = app.get_active_panel().selected_index;
 
     match panel_type {
-        PanelType::ProfileList => {
+        PanelType::ModeSelection => {
             let item = app.get_active_panel().list_model.get_item(selected_index);
             if let Some(PanelItem {
-                data: ItemData::Profile(profile),
+                data: ItemData::Mode(mode),
                 ..
             }) = item
             {
-                let profile = profile.clone();
-                if let Some(profile_config) = app.config_manager.get_profile_config(&profile) {
-                    if let Some(script_path) = &profile_config.setup_script {
-                        if !script_path.trim().is_empty() {
-                            app.script.pending_script = Some(script_path.clone());
-                            app.script.pending_profile = Some(profile.clone());
-                            app.script.pending_bucket = None;
-                            app.script.needs_terminal = true;
-                            return Ok(());
+                match mode.as_str() {
+                    "s3" => {
+                        // Navigate to ProfileList
+                        let profiles = app.config_manager.aws_profiles.clone();
+                        let panel = app.get_active_panel();
+                        panel.panel_type = PanelType::ProfileList;
+                        panel
+                            .list_model
+                            .set_items(super::converters::profiles_to_items(&profiles));
+                        panel.selected_index = 0;
+                    }
+                    "local" => {
+                        // Navigate to LocalFilesystem
+                        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+                        navigate_to_local_dir(app, home).await?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        PanelType::DriveSelection => {
+            let item = app.get_active_panel().list_model.get_item(selected_index);
+
+            match item {
+                Some(PanelItem {
+                    item_type: ItemType::ParentDir,
+                    ..
+                }) => {
+                    // Navigate back to ModeSelection
+                    let panel = app.get_active_panel();
+                    panel.panel_type = PanelType::ModeSelection;
+                    panel
+                        .list_model
+                        .set_items(super::converters::modes_to_items());
+                    panel.selected_index = 0;
+                }
+                Some(PanelItem {
+                    data: ItemData::Drive(drive),
+                    ..
+                }) => {
+                    let drive_path = drive.clone();
+                    navigate_to_local_dir(app, drive_path).await?;
+                }
+                _ => {}
+            }
+        }
+        PanelType::ProfileList => {
+            let item = app.get_active_panel().list_model.get_item(selected_index);
+
+            match item {
+                Some(PanelItem {
+                    item_type: ItemType::ParentDir,
+                    ..
+                }) => {
+                    // Navigate back to ModeSelection
+                    let panel = app.get_active_panel();
+                    panel.panel_type = PanelType::ModeSelection;
+                    panel
+                        .list_model
+                        .set_items(super::converters::modes_to_items());
+                    panel.selected_index = 0;
+                }
+                Some(PanelItem {
+                    data: ItemData::Profile(profile),
+                    ..
+                }) => {
+                    let profile = profile.clone();
+                    if let Some(profile_config) = app.config_manager.get_profile_config(&profile) {
+                        if let Some(script_path) = &profile_config.setup_script {
+                            if !script_path.trim().is_empty() {
+                                app.script.pending_script = Some(script_path.clone());
+                                app.script.pending_profile = Some(profile.clone());
+                                app.script.pending_bucket = None;
+                                app.script.needs_terminal = true;
+                                return Ok(());
+                            }
                         }
                     }
-                }
 
-                let buckets = app.config_manager.get_buckets_for_profile(&profile);
-                let panel = app.get_active_panel();
-                panel.panel_type = PanelType::BucketList { profile };
-                panel
-                    .list_model
-                    .set_items(super::converters::buckets_to_items(buckets));
-                panel.selected_index = 0;
+                    let buckets = app.config_manager.get_buckets_for_profile(&profile);
+                    let panel = app.get_active_panel();
+                    panel.panel_type = PanelType::BucketList { profile };
+                    panel
+                        .list_model
+                        .set_items(super::converters::buckets_to_items(buckets));
+                    panel.selected_index = 0;
+                }
+                _ => {}
             }
         }
         PanelType::BucketList { profile } => {
@@ -139,6 +207,38 @@ pub async fn enter_selected(app: &mut App) -> Result<()> {
 
                     if let Some(parent) = parent_path {
                         navigate_to_local_dir(app, parent).await?;
+                    } else {
+                        // No parent directory - check if Windows for drive selection
+                        #[cfg(target_os = "windows")]
+                        {
+                            let drives = list_windows_drives();
+                            if !drives.is_empty() {
+                                let panel = app.get_active_panel();
+                                panel.panel_type = PanelType::DriveSelection;
+                                panel
+                                    .list_model
+                                    .set_items(super::converters::drives_to_items(drives));
+                                panel.selected_index = 0;
+                            } else {
+                                // Fallback to ModeSelection if no drives found
+                                let panel = app.get_active_panel();
+                                panel.panel_type = PanelType::ModeSelection;
+                                panel
+                                    .list_model
+                                    .set_items(super::converters::modes_to_items());
+                                panel.selected_index = 0;
+                            }
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            // Linux: Navigate to ModeSelection
+                            let panel = app.get_active_panel();
+                            panel.panel_type = PanelType::ModeSelection;
+                            panel
+                                .list_model
+                                .set_items(super::converters::modes_to_items());
+                            panel.selected_index = 0;
+                        }
                     }
                 }
                 Some(PanelItem {
@@ -177,6 +277,8 @@ pub async fn load_s3_bucket_no_script(
         bucket.clone(),
         bucket_config.role_chain.clone(),
         &bucket_config.region,
+        bucket_config.endpoint_url.as_deref(),
+        bucket_config.path_style,
     )
     .await
     {
@@ -253,7 +355,8 @@ async fn navigate_to_s3_prefix(
 }
 
 async fn navigate_to_local_dir(app: &mut App, path: PathBuf) -> Result<()> {
-    let has_parent = path.parent().is_some();
+    // Always show ".." to allow navigation back to ModeSelection at root
+    let has_parent = true;
     match read_local_directory(&path) {
         Ok(files) => {
             let panel = app.get_active_panel();
@@ -366,6 +469,29 @@ pub async fn reload_local_files(app: &mut App) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[allow(dead_code)]
+pub fn list_windows_drives() -> Vec<PathBuf> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::fs;
+        ('A'..='Z')
+            .filter_map(|letter| {
+                let drive = PathBuf::from(format!("{letter}:\\"));
+                // Check if drive exists by trying to read metadata
+                if fs::metadata(&drive).is_ok() {
+                    Some(drive)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Vec::new()
+    }
 }
 
 pub async fn reload_s3_browser(app: &mut App) -> Result<()> {

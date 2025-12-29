@@ -11,12 +11,20 @@ Ein Midnight Commander-inspiriertes Terminal User Interface (TUI) für S3-Dateiv
 - 🎨 **Cyan-Theme** - Authentische MC-Farbgebung
 - 🔄 **Tab-Navigation** - Wechsel zwischen linkem und rechtem Panel
 
-### 🔐 AWS Integration
+### 🔐 AWS & S3-kompatible Services
 - 👤 **AWS Profile Management** - Nutzt Credentials aus `~/.aws/credentials`
 - 🪣 **Bucket Zuordnung** - Profile können individuell mit S3 Buckets verknüpft werden
 - 🔗 **Role Chaining** - Unterstützung für mehrfaches Role Assumption (Role über Role)
 - 🌍 **Multi-Region Support** - Konfigurierbare AWS Regions pro Bucket
 - 🔧 **Setup Scripts** - Automatische Ausführung von Authentifizierungs-Scripts (z.B. `aws-vault`, `aws sso`)
+- 🌐 **S3-kompatible Services** - Unterstützung für Hetzner, Minio, DigitalOcean, Wasabi, Ceph
+  - Custom Endpoint URLs konfigurierbar
+  - Path-Style URLs für Minio/Ceph
+
+### 🔀 Navigation
+- 🎯 **Modus-Übersicht** - Zentrale Auswahl zwischen S3 Storage und Local Filesystem
+- 💾 **Windows Laufwerksübersicht** - Automatische Erkennung und Navigation zwischen Laufwerken (C:\, D:\, etc.)
+- 🔙 **Intuitive ".." Navigation** - Von überall zurück zur Modus-Auswahl
 
 ### 📂 Dateiverwaltung
 - 🗂️ **S3 Browser** - Navigation durch S3 Buckets und Objekte
@@ -63,18 +71,96 @@ cargo run
 
 ## AWS Konfiguration
 
-Stelle sicher, dass deine AWS Credentials korrekt konfiguriert sind:
+### AWS CLI installieren
+
+Falls noch nicht installiert:
+
+```bash
+# macOS
+brew install awscli
+
+# Linux
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install
+
+# Windows
+# Download und installiere von: https://aws.amazon.com/cli/
+```
+
+### AWS Profil anlegen
+
+**1. Credentials konfigurieren:**
+
+```bash
+# Interaktiv (empfohlen)
+aws configure --profile myprofile
+# Eingaben:
+# - AWS Access Key ID
+# - AWS Secret Access Key  
+# - Default region (z.B. eu-west-1)
+# - Default output format (json)
+```
+
+**2. Manuelle Konfiguration:**
+
+Erstelle/bearbeite die Dateien:
 
 ```bash
 # ~/.aws/credentials
-[profile1]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
+[myprofile]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 
-[profile2]
-aws_access_key_id = YOUR_ACCESS_KEY
-aws_secret_access_key = YOUR_SECRET_KEY
+[production]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ```
+
+```bash
+# ~/.aws/config
+[profile myprofile]
+region = eu-west-1
+output = json
+
+[profile production]
+region = us-east-1
+output = json
+```
+
+**3. Identität überprüfen:**
+
+```bash
+# Identität mit spezifischem Profil abrufen
+aws sts get-caller-identity --profile myprofile
+
+# Ausgabe:
+# {
+#     "UserId": "AIDAI...",
+#     "Account": "123456789012",
+#     "Arn": "arn:aws:iam::123456789012:user/myuser"
+# }
+
+# Alle verfügbaren Profile anzeigen
+aws configure list-profiles
+```
+
+### Mehrere Profile verwalten
+
+```bash
+# Profil "development" anlegen
+aws configure --profile development
+
+# Profil "staging" anlegen
+aws configure --profile staging
+
+# Profil "production" anlegen
+aws configure --profile production
+```
+
+**Profile in s3c verwenden:**
+
+s3c liest automatisch alle Profile aus `~/.aws/credentials` und zeigt sie beim Start an.
 
 ## Verwendung
 
@@ -165,16 +251,17 @@ Die Anwendung startet mit zwei Panels:
 
 | Taste | Funktion | Kontext | Beschreibung |
 |-------|----------|---------|--------------|
-| **F1** | Help | Alle | Zeigt Hilfe an |
+| **F1 / ?** | Help | Alle | Zeigt Hilfe an |
 | **F2** | Sort | Alle | Sortierung (Name, Size, Date) |
-| **F3** | View/Edit | Alle | Edit (Profile/Bucket) / View (S3/Filesystem) |
+| **F3** | View/Edit | ProfileList: Edit Profile<br>BucketList: Edit Bucket<br>S3/Filesystem: View File | Kontextabhängig: Edit Config oder View File |
 | **F4** | Filter | Alle | Filtert Items nach Namen |
 | **F5** | Copy | S3/Filesystem | Kopiert zwischen Panels |
 | **F6** | Rename | S3/Filesystem | Benennt Datei/Ordner um |
-| **F7** | Create/Mkdir | BucketList/S3/Filesystem | Erstellt Bucket-Config oder Ordner |
-| **F8** | Delete | Alle | Löscht ausgewähltes Item |
-| **F9** | Advanced | Alle | Schaltet Advanced Mode um |
-| **q/Esc** | Quit | Alle | Beendet Anwendung oder schließt Dialog |
+| **F7** | Create | BucketList: Bucket Config<br>S3/Filesystem: Mkdir | Kontextabhängig: Config oder Ordner erstellen |
+| **F8 / Del** | Delete | Alle | Löscht ausgewähltes Item |
+| **F9** | Advanced | Alle | Schaltet Advanced Mode um (erweiterte Infos) |
+| **F10 / q** | Quit | Alle | Beendet Anwendung |
+| **F12** | Toggle FS | Alle | Wechselt zu lokalem Filesystem |
 
 ### Navigation
 - **Tab** - Zwischen Panels wechseln
@@ -244,6 +331,181 @@ Format:
   - Notwendig bei Berechtigungen auf bestimmte Prefixe
 - `description` - Optionale Beschreibung
 - `role_chain` - Optionale Liste von Role ARNs für Role Chaining
+- `endpoint_url` - Custom S3 Endpoint für S3-kompatible Services (optional)
+- `path_style` - Force Path-Style URLs für Minio, Ceph, etc. (optional, default: false)
+
+## S3-kompatible Services
+
+s3c funktioniert mit allen S3-kompatiblen Object Storage Services:
+- 🇩🇪 **Hetzner Object Storage**
+- 🏠 **Minio** (self-hosted)
+- 🌊 **DigitalOcean Spaces**
+- ☁️ **Azure Blob Storage** (mit S3-Kompatibilität)
+- 🗄️ **Ceph S3 Gateway**
+- 📦 **Wasabi**
+- 🔧 **Andere S3-kompatible Services**
+
+### Credentials für S3-kompatible Services
+
+Die Access Keys dieser Services werden im **gleichen Format** wie AWS Credentials gespeichert:
+
+```bash
+# ~/.aws/credentials
+
+# AWS Profil
+[aws-production]
+aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+# Hetzner Object Storage
+[hetzner]
+aws_access_key_id = HETZNER_ACCESS_KEY_123
+aws_secret_access_key = hetzner_secret_key_456
+
+# Minio (self-hosted)
+[minio-local]
+aws_access_key_id = minioadmin
+aws_secret_access_key = minioadmin
+
+# DigitalOcean Spaces
+[do-spaces]
+aws_access_key_id = DO_SPACES_KEY_ABC
+aws_secret_access_key = do_spaces_secret_xyz
+```
+
+**Wichtig:** Die Feldnamen bleiben `aws_access_key_id` und `aws_secret_access_key`, aber die **Werte** sind die Access Keys des jeweiligen Services.
+
+### Beispiel-Konfigurationen
+
+**Hetzner Object Storage:**
+```json
+{
+  "profiles": [
+    {
+      "name": "hetzner",
+      "description": "Hetzner Storage",
+      "buckets": [
+        {
+          "name": "my-backup-bucket",
+          "region": "fsn1",
+          "endpoint_url": "https://fsn1.your-objectstorage.com",
+          "description": "Backup Storage"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Minio (self-hosted):**
+```json
+{
+  "profiles": [
+    {
+      "name": "minio-local",
+      "description": "Internal Minio",
+      "buckets": [
+        {
+          "name": "company-data",
+          "region": "us-east-1",
+          "endpoint_url": "https://minio.company.com:9000",
+          "path_style": true,
+          "description": "Company Internal Storage"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**DigitalOcean Spaces:**
+```json
+{
+  "profiles": [
+    {
+      "name": "do-spaces",
+      "description": "DigitalOcean Spaces",
+      "buckets": [
+        {
+          "name": "my-space",
+          "region": "fra1",
+          "endpoint_url": "https://fra1.digitaloceanspaces.com",
+          "description": "Frankfurt Space"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Azure Blob Storage (mit S3-Kompatibilität):**
+```json
+{
+  "profiles": [
+    {
+      "name": "azure",
+      "description": "Azure Storage",
+      "buckets": [
+        {
+          "name": "my-container",
+          "region": "westeurope",
+          "endpoint_url": "https://myaccount.blob.core.windows.net",
+          "description": "Azure West Europe"
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Region-Namen der verschiedenen Services
+
+**Wichtig:** Die Region ist **nur bei AWS S3 wirklich relevant**. Bei alternativen Anbietern mit Custom Endpoint bestimmt der Endpoint die tatsächliche Verbindung - die Region ist nur ein Pflichtfeld für das AWS SDK.
+
+| Service | Region-Format | Bedeutung | Beispiele |
+|---------|---------------|-----------|-----------|
+| **AWS S3** | AWS Regions | ✅ **Wichtig** - bestimmt Routing | `eu-west-1`, `us-east-1`, `ap-southeast-1` |
+| **Hetzner** | Beliebig | ⚠️ Dummy - Endpoint zählt | `fsn1`, `nbg1` oder einfach `us-east-1` |
+| **DigitalOcean Spaces** | Beliebig | ⚠️ Dummy - Endpoint zählt | `fra1`, `nyc3` oder einfach `us-east-1` |
+| **Minio/Ceph** | Beliebig | ⚠️ Dummy - Endpoint zählt | `us-east-1` (Standard) |
+| **Wasabi** | Wasabi Regions | ⚠️ Dummy - Endpoint zählt | `eu-central-1`, `us-east-1` |
+
+**Technischer Hintergrund:**
+- Bei **AWS S3** ohne Custom Endpoint: Region bestimmt, zu welchem AWS-Rechenzentrum verbunden wird
+- Bei **Custom Endpoint** (Hetzner, Minio, etc.): Der Endpoint-URL bestimmt die Verbindung, die Region ist nur ein Pflichtfeld für das AWS SDK und hat keine Routing-Funktion
+
+### Path-Style URLs: Wann ist es nötig?
+
+**Path-Style** ändert das URL-Format für S3-Requests:
+
+| URL-Style | Format | Beispiel |
+|-----------|--------|----------|
+| **Virtual-hosted-style** (Standard) | `https://bucket-name.endpoint.com/key` | `https://my-bucket.s3.amazonaws.com/file.txt` |
+| **Path-style** | `https://endpoint.com/bucket-name/key` | `https://s3.amazonaws.com/my-bucket/file.txt` |
+
+**Wann muss Path-Style aktiviert werden?**
+
+| Service | Path-Style nötig? | Grund |
+|---------|------------------|-------|
+| **AWS S3** | ❌ Nein | Unterstützt beides, Virtual-hosted ist Standard |
+| **Hetzner** | ❌ Nein | Unterstützt Virtual-hosted-style |
+| **DigitalOcean Spaces** | ❌ Nein | Unterstützt Virtual-hosted-style |
+| **Wasabi** | ❌ Nein | Unterstützt Virtual-hosted-style |
+| **Minio** | ✅ **Ja** | Benötigt oft Path-style URLs |
+| **Ceph S3 Gateway** | ✅ **Ja** | Benötigt oft Path-style URLs |
+
+**Empfehlung:** Nur aktivieren wenn der Service-Provider es explizit verlangt oder wenn Verbindungsfehler auftreten.
+
+### Wie es funktioniert
+
+1. **Credentials:** Service-spezifische Access Keys in `~/.aws/credentials` speichern
+2. **Profil:** In s3c wie ein normales AWS-Profil verwenden
+3. **Endpoint:** Custom `endpoint_url` in Bucket-Konfiguration setzen
+4. **Region:** Korrekte Region des Services angeben (siehe Tabelle oben)
+5. **API:** AWS SDK sendet Requests an Custom Endpoint (gleiche S3 API)
+6. **Nutzung:** Identische Bedienung wie mit AWS S3
+
+**Vorteil:** Ein Tool für alle S3-kompatiblen Services! 🎯
 
 ## Setup Scripts
 
@@ -394,9 +656,12 @@ s3c ist von Midnight Commander (MC) inspiriert und übernimmt dessen bewährtes 
 
 **Function-Key Menu:**
 ```
-01Help  02Create  03View  04Edit  05Copy  06Move  07Mkdir  08Delete  09Menu  10Exit
+01Help  02Sort  03View/Edit  04Filter  05Copy  06Rename  07Mkdir/Config  08Delete  09Advanced  10Exit
 ```
 - Kontextabhängige Funktionen (ändern sich je nach Panel-Typ)
+- F3: Edit (Profile/Bucket) oder View (S3/Filesystem)
+- F7: Mkdir (S3/Filesystem) oder Config (BucketList)
+- F9: Toggle Advanced Mode (zeigt erweiterte Informationen)
 - Zahlen mit schwarzem Hintergrund, Labels mit Cyan
 - Gleichmäßige Verteilung über volle Terminalbreite
 

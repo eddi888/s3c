@@ -14,7 +14,10 @@ use crate::operations::FileOperation;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum PanelType {
+    ModeSelection,
+    DriveSelection,
     ProfileList,
     BucketList {
         profile: String,
@@ -104,6 +107,17 @@ pub struct BackgroundTransferTask {
 }
 
 impl Panel {
+    pub fn new_mode_selection() -> Self {
+        Self {
+            panel_type: PanelType::ModeSelection,
+            selected_index: 0,
+            scroll_offset: 0,
+            visible_height: 10,
+            list_model: PanelListModel::empty(),
+            s3_manager: None,
+        }
+    }
+
     pub fn new_profile_list() -> Self {
         Self {
             panel_type: PanelType::ProfileList,
@@ -136,7 +150,7 @@ impl App {
         let mut app = Self {
             config_manager,
             screen: Screen::DualPanel,
-            left_panel: Panel::new_profile_list(),
+            left_panel: Panel::new_mode_selection(),
             right_panel: Panel::new_local_filesystem(),
             active_panel: ActivePanel::Left,
             prev_screen: None,
@@ -168,11 +182,10 @@ impl App {
             }
         }
 
-        // Load profiles for left panel
-        let profiles = app.config_manager.aws_profiles.clone();
+        // Load mode selection items for left panel
         app.left_panel
             .list_model
-            .set_items(converters::profiles_to_items(&profiles));
+            .set_items(converters::modes_to_items());
 
         Ok(app)
     }

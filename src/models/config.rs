@@ -14,6 +14,10 @@ pub struct BucketConfig {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub base_prefix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub endpoint_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub path_style: Option<bool>,
 }
 
 fn default_region() -> String {
@@ -43,10 +47,16 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub fn new() -> Result<Self> {
-        let config_dir = dirs::home_dir()
-            .context("Could not find home directory")?
-            .join(".config")
-            .join("s3c");
+        // Use platform-specific config directory
+        let config_dir = if let Some(dir) = dirs::config_dir() {
+            dir.join("s3c")
+        } else {
+            // Fallback to ~/.config/s3c on Unix-like systems
+            dirs::home_dir()
+                .context("Could not find home directory")?
+                .join(".config")
+                .join("s3c")
+        };
 
         fs::create_dir_all(&config_dir)?;
         let config_path = config_dir.join("config.json");
@@ -103,6 +113,7 @@ impl ConfigManager {
             .find(|p| p.name == profile_name)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_bucket_to_profile(
         &mut self,
         profile_name: &str,
@@ -111,6 +122,8 @@ impl ConfigManager {
         region: String,
         description: Option<String>,
         base_prefix: Option<String>,
+        endpoint_url: Option<String>,
+        path_style: Option<bool>,
     ) -> Result<()> {
         let bucket_config = BucketConfig {
             name: bucket.clone(),
@@ -118,6 +131,8 @@ impl ConfigManager {
             region,
             description,
             base_prefix,
+            endpoint_url,
+            path_style,
         };
 
         if let Some(profile) = self

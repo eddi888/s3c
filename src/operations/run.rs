@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event},
+    event::{self, Event, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -32,6 +32,15 @@ pub async fn run_app<B: ratatui::backend::Backend>(
 
                 // Run script interactively
                 println!("Running setup script: {script}");
+
+                // Platform-specific shell execution
+                #[cfg(target_os = "windows")]
+                let status = std::process::Command::new("cmd")
+                    .arg("/C")
+                    .arg(&script)
+                    .status();
+
+                #[cfg(not(target_os = "windows"))]
                 let status = std::process::Command::new("sh")
                     .arg("-c")
                     .arg(&script)
@@ -122,6 +131,11 @@ pub async fn run_app<B: ratatui::backend::Backend>(
 
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
+                // Ignore key release events (Windows sends both press and release)
+                if key.kind != KeyEventKind::Press {
+                    continue;
+                }
+
                 // Convert key to message using TEA pattern
                 if let Some(msg) = key_to_message(app, key.code, key.modifiers) {
                     // Process message and handle cascading messages

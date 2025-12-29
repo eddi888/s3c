@@ -31,6 +31,8 @@ impl S3Manager {
         bucket: String,
         role_chain: Vec<String>,
         region: &str,
+        endpoint_url: Option<&str>,
+        path_style: Option<bool>,
     ) -> Result<Self> {
         let region_str = region.to_string();
 
@@ -85,7 +87,20 @@ impl S3Manager {
             }
         }
 
-        let client = Client::new(&config);
+        // Build S3 client with optional custom endpoint and path style
+        let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&config);
+
+        // Set custom endpoint for S3-compatible services (Hetzner, Minio, DigitalOcean, etc.)
+        if let Some(endpoint) = endpoint_url {
+            s3_config_builder = s3_config_builder.endpoint_url(endpoint);
+        }
+
+        // Force path-style URLs (required for Minio, Ceph)
+        if path_style == Some(true) {
+            s3_config_builder = s3_config_builder.force_path_style(true);
+        }
+
+        let client = Client::from_conf(s3_config_builder.build());
 
         Ok(Self { client, bucket })
     }

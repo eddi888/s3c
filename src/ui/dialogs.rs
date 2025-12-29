@@ -265,13 +265,15 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         .direction(Direction::Vertical)
         .margin(2)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
-            Constraint::Min(3),
-            Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(3), // Bucket Name
+            Constraint::Length(3), // Base Folder
+            Constraint::Length(3), // Description
+            Constraint::Length(3), // Region
+            Constraint::Length(3), // Endpoint URL
+            Constraint::Length(3), // Path Style (checkbox)
+            Constraint::Min(3),    // Roles
+            Constraint::Length(3), // Buttons
+            Constraint::Length(3), // Help
         ])
         .split(chunks[1]);
 
@@ -351,7 +353,51 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         f.set_cursor_position((cursor_x, cursor_y));
     }
 
-    let roles_area = form_chunks[4];
+    // Endpoint URL field
+    let endpoint_style = if app.config_form.field == 4 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let endpoint_url = Paragraph::new(format!(
+        "Endpoint URL (optional): {}",
+        app.config_form.endpoint_url
+    ))
+    .style(endpoint_style)
+    .block(Block::default().borders(Borders::ALL));
+    f.render_widget(endpoint_url, form_chunks[4]);
+
+    if app.config_form.field == 4 {
+        let cursor_x = form_chunks[4].x
+            + 1
+            + "Endpoint URL (optional): ".len() as u16
+            + app.config_form.cursor as u16;
+        let cursor_y = form_chunks[4].y + 1;
+        f.set_cursor_position((cursor_x, cursor_y));
+    }
+
+    // Path Style checkbox
+    let path_style_indicator = if app.config_form.path_style {
+        "[✓]"
+    } else {
+        "[ ]"
+    };
+    let path_style_style = if app.config_form.field == 5 {
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+    let path_style_text = format!("{path_style_indicator} Force Path Style (for Minio/Ceph)");
+    let path_style_para = Paragraph::new(path_style_text)
+        .style(path_style_style)
+        .block(Block::default().borders(Borders::ALL));
+    f.render_widget(path_style_para, form_chunks[5]);
+
+    let roles_area = form_chunks[6];
     let role_block = Block::default().borders(Borders::ALL).title("Role ARNs");
     f.render_widget(role_block, roles_area);
 
@@ -368,7 +414,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         .split(inner_area);
 
     for (i, role) in app.config_form.roles.iter().enumerate() {
-        let role_style = if app.config_form.field == i + 4 {
+        let role_style = if app.config_form.field == i + 6 {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
@@ -380,7 +426,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         if i < role_chunks.len() {
             f.render_widget(role_para, role_chunks[i]);
 
-            if app.config_form.field == i + 4 {
+            if app.config_form.field == i + 6 {
                 let cursor_x = role_chunks[i].x
                     + format!("[{}] ", i + 1).len() as u16
                     + app.config_form.cursor as u16;
@@ -396,7 +442,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
         f.render_widget(help_text, role_chunks[app.config_form.roles.len()]);
     }
 
-    let button_field = app.config_form.roles.len() + 4;
+    let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6 (added 2 fields)
     let save_style = if app.config_form.field == button_field {
         Style::default()
             .fg(Color::Green)
@@ -421,9 +467,9 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     } else {
         Paragraph::new("Save  Cancel").alignment(Alignment::Center)
     };
-    f.render_widget(buttons, form_chunks[5]);
+    f.render_widget(buttons, form_chunks[7]);
 
-    let help = Paragraph::new("↑/↓: Navigate | Type: Edit field | +: Add role | -: Remove role | Enter: Save/Cancel | Esc: Cancel")
+    let help = Paragraph::new("↑/↓: Navigate | Type: Edit | Space: Toggle Path Style | +: Add role | -: Remove role | Enter: Save/Cancel | Esc: Cancel")
         .style(Style::default().fg(Color::Gray))
         .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL));

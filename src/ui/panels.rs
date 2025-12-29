@@ -22,6 +22,61 @@ pub fn draw_panel(
     };
 
     let (title, items) = match &panel.panel_type {
+        PanelType::ModeSelection => {
+            let title = "Select Mode".to_string();
+            let items: Vec<ListItem> = panel
+                .list_model
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    let icon = match item.name.as_str() {
+                        name if name.starts_with("S3") => "📦",
+                        name if name.starts_with("Local") => "📁",
+                        _ => "📋",
+                    };
+                    let display = format!("{} {}", icon, item.name);
+
+                    let style = if i == panel.selected_index && is_active {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(display).style(style)
+                })
+                .collect();
+            (title, items)
+        }
+        PanelType::DriveSelection => {
+            let title = "Windows Drives".to_string();
+            let items: Vec<ListItem> = panel
+                .list_model
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    use crate::models::list::ItemType;
+
+                    let display = if matches!(item.item_type, ItemType::ParentDir) {
+                        "📁 ..".to_string()
+                    } else {
+                        format!("💾 {}", item.name)
+                    };
+
+                    let style = if i == panel.selected_index && is_active {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else if matches!(item.item_type, ItemType::ParentDir) {
+                        Style::default().fg(Color::Blue)
+                    } else {
+                        Style::default()
+                    };
+                    ListItem::new(display).style(style)
+                })
+                .collect();
+            (title, items)
+        }
         PanelType::ProfileList => {
             let title = "AWS Profiles".to_string();
             let items: Vec<ListItem> = panel

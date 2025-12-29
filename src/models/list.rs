@@ -20,7 +20,10 @@ pub enum ItemType {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum ItemData {
+    Mode(String),
+    Drive(PathBuf),
     Profile(String),
     Bucket(BucketConfig),
     S3Object(S3Object),

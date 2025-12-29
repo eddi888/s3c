@@ -59,7 +59,7 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
             }
         }
         ConfigFormDown => {
-            let max_field = app.config_form.roles.len() + 5;
+            let max_field = app.config_form.roles.len() + 7; // Changed from 5 to 7 (added 2 fields)
             if app.config_form.field < max_field {
                 app.config_form.field += 1;
                 app.config_form.cursor = get_config_form_field_len(app, app.config_form.field);
@@ -97,10 +97,14 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
                 && app.config_form.cursor < app.config_form.region.len()
             {
                 app.config_form.region.remove(app.config_form.cursor);
-            } else if app.config_form.field > 3
-                && app.config_form.field <= app.config_form.roles.len() + 3
+            } else if app.config_form.field == 4
+                && app.config_form.cursor < app.config_form.endpoint_url.len()
             {
-                let role_idx = app.config_form.field - 4;
+                app.config_form.endpoint_url.remove(app.config_form.cursor);
+            } else if app.config_form.field > 5
+                && app.config_form.field <= app.config_form.roles.len() + 5
+            {
+                let role_idx = app.config_form.field - 6;
                 if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                     if app.config_form.cursor < role.len() {
                         role.remove(app.config_form.cursor);
@@ -125,10 +129,18 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
             } else if app.config_form.field == 3 {
                 app.config_form.region.insert(app.config_form.cursor, c);
                 app.config_form.cursor += 1;
-            } else if app.config_form.field > 3
-                && app.config_form.field <= app.config_form.roles.len() + 3
+            } else if app.config_form.field == 4 {
+                app.config_form
+                    .endpoint_url
+                    .insert(app.config_form.cursor, c);
+                app.config_form.cursor += 1;
+            } else if app.config_form.field == 5 && c == ' ' {
+                // Toggle path_style checkbox with space
+                app.config_form.path_style = !app.config_form.path_style;
+            } else if app.config_form.field > 5
+                && app.config_form.field <= app.config_form.roles.len() + 5
             {
-                let role_idx = app.config_form.field - 4;
+                let role_idx = app.config_form.field - 6;
                 if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                     role.insert(app.config_form.cursor, c);
                     app.config_form.cursor += 1;
@@ -149,10 +161,13 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
                 } else if app.config_form.field == 3 {
                     app.config_form.cursor -= 1;
                     app.config_form.region.remove(app.config_form.cursor);
-                } else if app.config_form.field > 3
-                    && app.config_form.field <= app.config_form.roles.len() + 3
+                } else if app.config_form.field == 4 {
+                    app.config_form.cursor -= 1;
+                    app.config_form.endpoint_url.remove(app.config_form.cursor);
+                } else if app.config_form.field > 5
+                    && app.config_form.field <= app.config_form.roles.len() + 5
                 {
-                    let role_idx = app.config_form.field - 4;
+                    let role_idx = app.config_form.field - 6;
                     if let Some(role) = app.config_form.roles.get_mut(role_idx) {
                         app.config_form.cursor -= 1;
                         role.remove(app.config_form.cursor);
@@ -166,8 +181,8 @@ pub fn handle_config_form_message(app: &mut App, msg: Message) -> Result<()> {
         ConfigFormRemoveRole => {
             if app.config_form.roles.len() > 1 {
                 app.config_form.roles.pop();
-                if app.config_form.field >= 3 + app.config_form.roles.len() {
-                    app.config_form.field = 3 + app.config_form.roles.len() - 1;
+                if app.config_form.field >= 5 + app.config_form.roles.len() {
+                    app.config_form.field = 5 + app.config_form.roles.len() - 1;
                 }
             }
         }
@@ -182,8 +197,10 @@ fn get_config_form_field_len(app: &App, field: usize) -> usize {
         1 => app.config_form.base_prefix.len(),
         2 => app.config_form.description.len(),
         3 => app.config_form.region.len(),
-        _ if field <= app.config_form.roles.len() + 3 => {
-            let role_idx = field - 4;
+        4 => app.config_form.endpoint_url.len(),
+        5 => 0, // path_style checkbox has no cursor
+        _ if field <= app.config_form.roles.len() + 5 => {
+            let role_idx = field - 6;
             app.config_form
                 .roles
                 .get(role_idx)
@@ -216,6 +233,18 @@ pub fn save_config_form(app: &mut App) -> Result<()> {
             Some(app.config_form.base_prefix.clone())
         };
 
+        let endpoint_url = if app.config_form.endpoint_url.trim().is_empty() {
+            None
+        } else {
+            Some(app.config_form.endpoint_url.clone())
+        };
+
+        let path_style = if app.config_form.path_style {
+            Some(true)
+        } else {
+            None
+        };
+
         app.config_manager.add_bucket_to_profile(
             &app.config_form.profile,
             app.config_form.bucket.clone(),
@@ -223,6 +252,8 @@ pub fn save_config_form(app: &mut App) -> Result<()> {
             app.config_form.region.clone(),
             description,
             base_prefix,
+            endpoint_url,
+            path_style,
         )?;
 
         // Refresh bucket list if we're on BucketList screen
@@ -267,6 +298,8 @@ pub fn edit_bucket_config(app: &mut App) {
             app.config_form.base_prefix = bucket_config.base_prefix.clone().unwrap_or_default();
             app.config_form.description = bucket_config.description.clone().unwrap_or_default();
             app.config_form.region = bucket_config.region.clone();
+            app.config_form.endpoint_url = bucket_config.endpoint_url.clone().unwrap_or_default();
+            app.config_form.path_style = bucket_config.path_style.unwrap_or(false);
             app.config_form.roles = if bucket_config.role_chain.is_empty() {
                 vec![String::new()]
             } else {
