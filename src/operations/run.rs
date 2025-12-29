@@ -16,6 +16,10 @@ pub async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
 ) -> Result<()> {
+    let mut last_render = std::time::Instant::now();
+    let render_interval = std::time::Duration::from_millis(100); // Limit to 10 FPS for smooth rendering
+    let mut needs_render = true;
+
     loop {
         // Check if we need to run a script interactively
         if app.script.needs_terminal {
@@ -86,7 +90,10 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                 .load(std::sync::atomic::Ordering::Relaxed);
             if let Some(index) = app.current_transfer_index {
                 if let Some(op) = app.file_operation_queue.get_mut(index) {
-                    op.transferred = current;
+                    if op.transferred != current {
+                        op.transferred = current;
+                        needs_render = true; // Progress changed, need to render
+                    }
                 }
             }
 
@@ -131,6 +138,7 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                 // Start next queued transfer if available
                 app.current_transfer_index = None;
                 start_next_queued_transfer(app).await?;
+                needs_render = true; // Transfer completed, queue changed
             }
         }
 
@@ -139,27 +147,48 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             start_next_queued_transfer(app).await?;
         }
 
-        terminal.draw(|f| ui::draw(f, app))?;
+        // Render only when needed and throttled
+        let now = std::time::Instant::now();
+        if needs_render && now.duration_since(last_render) >= render_interval {
+            terminal.draw(|f| ui::draw(f, app))?;
+            // Explicit flush for Windows terminal responsiveness
+            #[cfg(target_os = "windows")]
+            {
+                use std::io::Write;
+                let _ = io::stdout().flush();
+            }
+            last_render = now;
+            needs_render = false;
+        }
 
         if app.should_quit {
             break;
         }
 
         if event::poll(std::time::Duration::from_millis(25))? {
-            if let Event::Key(key) = event::read()? {
-                // Ignore key release events (Windows sends both press and release)
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
+            match event::read()? {
+                Event::Key(key) => {
+                    // Ignore key release events (Windows sends both press and release)
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
 
-                // Convert key to message using TEA pattern
-                if let Some(msg) = key_to_message(app, key.code, key.modifiers) {
-                    // Process message and handle cascading messages
-                    let mut current_msg = Some(msg);
-                    while let Some(message) = current_msg {
-                        current_msg = app::update(app, message).await?;
+                    // Convert key to message using TEA pattern
+                    if let Some(msg) = key_to_message(app, key.code, key.modifiers) {
+                        // Process message and handle cascading messages
+                        let mut current_msg = Some(msg);
+                        while let Some(message) = current_msg {
+                            current_msg = app::update(app, message).await?;
+                        }
+                        needs_render = true; // User input processed, need to render
                     }
                 }
+                Event::Resize(_, _) => {
+                    // Terminal resized - force re-render
+                    needs_render = true;
+                }
+                // Ignore Mouse, Focus, Paste events (Windows optimization)
+                _ => {}
             }
         }
     }

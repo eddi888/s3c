@@ -279,7 +279,7 @@ fn draw_help(f: &mut Frame, _app: &App) {
         "  F8          - Delete selected item",
         "  F9          - Toggle Advanced Mode",
         "  F10         - Quit application",
-        "  F11         - Toggle active panel between AWS-S3-Mode or local Filesystem",
+        "  F12         - Toggle active panel between AWS-S3-Mode or local Filesystem",
         "",
         "General:",
         "  q/Esc       - Quit application / Close dialog",
