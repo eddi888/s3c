@@ -79,6 +79,7 @@ pub struct App {
     pub should_quit: bool,
     pub advanced_mode: bool,
     pub app_title: String,
+    pub advanced_menu: Vec<(&'static str, &'static str)>,
 
     // UI Messages
     pub error_message: String,
@@ -160,6 +161,18 @@ impl App {
             should_quit: false,
             advanced_mode: false,
             app_title: "s3c - S3 Commander".to_string(),
+            advanced_menu: vec![
+                ("01", "Help"),
+                ("02", ""),
+                ("03", ""),
+                ("04", ""),
+                ("05", ""),
+                ("06", ""),
+                ("07", ""),
+                ("08", ""),
+                ("09", "Back"),
+                ("10", "Quit"),
+            ],
             error_message: String::new(),
             success_message: String::new(),
             config_form: ConfigFormState::default(),

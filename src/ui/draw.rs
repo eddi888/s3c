@@ -113,24 +113,12 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
         ActivePanel::Right => &app.right_panel,
     };
 
-    let menu_items = if app.advanced_mode {
-        // Advanced Mode: nur F1 Help, F9 Back, F10 Quit
-        vec![
-            ("01", "Help"),
-            ("02", ""),
-            ("03", ""),
-            ("04", ""),
-            ("05", ""),
-            ("06", ""),
-            ("07", ""),
-            ("08", ""),
-            ("09", "Back"),
-            ("10", "Quit"),
-        ]
+    let menu_items: &[(&str, &str)] = if app.advanced_mode {
+        &app.advanced_menu
     } else {
         // Normal Mode
         match &active_panel.panel_type {
-            PanelType::ModeSelection => vec![
+            PanelType::ModeSelection => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", ""),
@@ -142,7 +130,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
                 ("09", ""),
                 ("10", "Quit"),
             ],
-            PanelType::DriveSelection => vec![
+            PanelType::DriveSelection => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", ""),
@@ -154,7 +142,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
                 ("09", ""),
                 ("10", "Quit"),
             ],
-            PanelType::ProfileList => vec![
+            PanelType::ProfileList => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", "Edit"),
@@ -166,7 +154,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
                 ("09", "Advanced"),
                 ("10", "Quit"),
             ],
-            PanelType::BucketList { .. } => vec![
+            PanelType::BucketList { .. } => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", "Edit Config"),
@@ -178,7 +166,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
                 ("09", "Advanced"),
                 ("10", "Quit"),
             ],
-            PanelType::S3Browser { .. } => vec![
+            PanelType::S3Browser { .. } => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", "View"),
@@ -190,7 +178,7 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
                 ("09", "Advanced"),
                 ("10", "Quit"),
             ],
-            PanelType::LocalFilesystem { .. } => vec![
+            PanelType::LocalFilesystem { .. } => &[
                 ("01", "Help"),
                 ("02", "Sort"),
                 ("03", "View"),

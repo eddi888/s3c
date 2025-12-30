@@ -19,14 +19,16 @@ pub fn navigate_down(app: &mut App) {
 
 pub fn navigate_page_up(app: &mut App) {
     let panel = app.get_active_panel();
-    panel.selected_index = panel.selected_index.saturating_sub(10);
+    let page_size = panel.visible_height.saturating_sub(1).max(1);
+    panel.selected_index = panel.selected_index.saturating_sub(page_size);
     update_scroll_offset(panel);
 }
 
 pub fn navigate_page_down(app: &mut App) {
     let panel = app.get_active_panel();
     let item_count = panel.list_model.len();
-    panel.selected_index = (panel.selected_index + 10).min(item_count.saturating_sub(1));
+    let page_size = panel.visible_height.saturating_sub(1).max(1);
+    panel.selected_index = (panel.selected_index + page_size).min(item_count.saturating_sub(1));
     update_scroll_offset(panel);
 }
 

@@ -21,8 +21,8 @@ pub struct S3Object {
 
 #[derive(Clone)]
 pub struct S3Manager {
-    client: Client,
-    bucket: String,
+    pub client: Client,
+    pub bucket: String,
 }
 
 impl S3Manager {

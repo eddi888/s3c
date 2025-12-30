@@ -82,76 +82,9 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             }
         }
 
-        // Check background transfer task and update queue
-        if let Some(task) = &mut app.background_transfer_task {
-            // Update queue with current progress
-            let current = task
-                .progress_counter
-                .load(std::sync::atomic::Ordering::Relaxed);
-            if let Some(index) = app.current_transfer_index {
-                if let Some(op) = app.file_operation_queue.get_mut(index) {
-                    if op.transferred != current {
-                        op.transferred = current;
-                        needs_render = true; // Progress changed, need to render
-                    }
-                }
-            }
-
-            // Check if task is finished
-            if task.task_handle.is_finished() {
-                let task = app.background_transfer_task.take().unwrap();
-                let mut operation = (*task.operation.lock().await).clone();
-
-                // Ensure transferred shows 100% on completion (for fast small files)
-                if operation.status == crate::operations::OperationStatus::Completed {
-                    operation.transferred = operation.total_size;
-                }
-
-                // Update current operation in queue
-                if let Some(index) = app.current_transfer_index {
-                    if let Some(op) = app.file_operation_queue.get_mut(index) {
-                        *op = operation.clone();
-                    }
-                }
-
-                // Handle completion/error
-                match operation.status {
-                    crate::operations::OperationStatus::Completed => {
-                        match &operation.operation_type {
-                            crate::operations::OperationType::Download => {
-                                app.show_success(&format!("Downloaded: {}", operation.source));
-                                crate::app::navigation::reload_local_files(app).await?;
-                            }
-                            crate::operations::OperationType::Upload => {
-                                app.show_success(&format!("Uploaded: {}", operation.source));
-                                crate::app::navigation::reload_s3_browser(app).await?;
-                            }
-                            crate::operations::OperationType::S3Copy => {
-                                app.show_success(&format!(
-                                    "S3 copy completed: {}",
-                                    operation.source
-                                ));
-                                crate::app::navigation::reload_s3_browser(app).await?;
-                            }
-                            _ => {}
-                        }
-                    }
-                    crate::operations::OperationStatus::Failed(ref err) => {
-                        app.show_error(&format!("Transfer failed: {err}"));
-                    }
-                    _ => {}
-                }
-
-                // Start next queued transfer if available
-                app.current_transfer_index = None;
-                start_next_queued_transfer(app).await?;
-                needs_render = true; // Transfer completed, queue changed
-            }
-        }
-
-        // Check if no transfer is running but queue has pending items
-        if app.background_transfer_task.is_none() && app.current_transfer_index.is_none() {
-            start_next_queued_transfer(app).await?;
+        // Process background tasks (progress updates, completion, queue management)
+        if process_background_tasks(app, terminal).await? {
+            needs_render = true;
         }
 
         // Render only when needed and throttled
@@ -203,8 +136,89 @@ pub async fn run_app<B: ratatui::backend::Backend>(
     Ok(())
 }
 
+/// Process background transfer tasks and update progress
+/// This handles all queue processing logic in one place
+pub async fn process_background_tasks<B: ratatui::backend::Backend>(
+    app: &mut App,
+    terminal: &mut ratatui::Terminal<B>,
+) -> Result<bool> {
+    let mut needs_render = false;
+
+    // Check background transfer task status
+    if let Some(ref task) = app.background_transfer_task {
+        // Update progress from atomic counter (while transfer is running)
+        let current = task
+            .progress_counter
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if let Some(index) = app.current_transfer_index {
+            if let Some(op) = app.file_operation_queue.get_mut(index) {
+                if op.transferred != current {
+                    op.transferred = current;
+                    needs_render = true;
+                }
+            }
+        }
+
+        // Check if task is finished
+        if task.task_handle.is_finished() {
+            let task = app.background_transfer_task.take().unwrap();
+            let mut operation = task.operation.lock().await.clone();
+
+            // Ensure transferred shows 100% on completion
+            if operation.status == crate::operations::OperationStatus::Completed {
+                operation.transferred = operation.total_size;
+            }
+
+            // Update queue IMMEDIATELY with final status
+            if let Some(index) = app.current_transfer_index {
+                if let Some(op) = app.file_operation_queue.get_mut(index) {
+                    *op = operation.clone();
+                }
+            }
+
+            // Force render to show 100% BEFORE cleanup
+            terminal.draw(|f| crate::ui::draw(f, app))?;
+
+            // Handle completion/error
+            match operation.status {
+                crate::operations::OperationStatus::Completed => match &operation.operation_type {
+                    crate::operations::OperationType::Download => {
+                        app.show_success(&format!("Downloaded: {}", operation.source));
+                        crate::app::navigation::reload_local_files(app).await?;
+                    }
+                    crate::operations::OperationType::Upload => {
+                        app.show_success(&format!("Uploaded: {}", operation.source));
+                        crate::app::navigation::reload_s3_browser(app).await?;
+                    }
+                    crate::operations::OperationType::S3Copy => {
+                        app.show_success(&format!("S3 copy completed: {}", operation.source));
+                        crate::app::navigation::reload_s3_browser(app).await?;
+                    }
+                    _ => {}
+                },
+                crate::operations::OperationStatus::Failed(ref err) => {
+                    app.show_error(&format!("Transfer failed: {err}"));
+                }
+                _ => {}
+            }
+
+            // Clean up and start next transfer
+            app.current_transfer_index = None;
+            start_next_queued_transfer(app).await?;
+            needs_render = true;
+        }
+    }
+
+    // Check if no transfer is running but queue has pending items
+    if app.background_transfer_task.is_none() && app.current_transfer_index.is_none() {
+        start_next_queued_transfer(app).await?;
+    }
+
+    Ok(needs_render)
+}
+
 /// Start the next queued transfer if any are pending
-async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
+pub async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
@@ -384,6 +398,9 @@ async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
                                     .unwrap_or(&op.destination)
                                     .to_string();
 
+                                // Check if cross-profile (different credentials)
+                                let is_cross_profile = src_profile != dest_profile;
+
                                 start_s3_copy_task(
                                     app,
                                     operation,
@@ -392,6 +409,7 @@ async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
                                     src_bucket.clone(),
                                     source_key,
                                     dest_key,
+                                    is_cross_profile,
                                 )
                                 .await;
                             }
@@ -516,6 +534,7 @@ async fn start_upload_task(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_s3_copy_task(
     app: &mut App,
     operation: std::sync::Arc<tokio::sync::Mutex<crate::operations::FileOperation>>,
@@ -524,6 +543,7 @@ async fn start_s3_copy_task(
     src_bucket: String,
     source_key: String,
     dest_key: String,
+    is_cross_profile: bool,
 ) {
     use std::sync::Arc;
 
@@ -538,42 +558,68 @@ async fn start_s3_copy_task(
     let operation_clone = operation.clone();
 
     let task_handle = tokio::spawn(async move {
-        // Try server-side copy first (works for same-bucket and cross-bucket)
-        let result = dest_manager
-            .copy_from_bucket_with_progress(
-                &src_bucket,
-                &source_key,
-                &dest_key,
-                Some(progress_callback.clone()),
-            )
-            .await;
+        // For cross-profile, use stream-based copy directly (different credentials)
+        if is_cross_profile {
+            let stream_result = dest_manager
+                .stream_copy_from_with_progress(
+                    &src_manager,
+                    &source_key,
+                    &dest_key,
+                    Some(progress_callback),
+                )
+                .await;
 
-        match result {
-            Ok(_) => {
-                operation_clone.lock().await.status = crate::operations::OperationStatus::Completed;
-                Ok(())
+            match stream_result {
+                Ok(_) => {
+                    operation_clone.lock().await.status =
+                        crate::operations::OperationStatus::Completed;
+                    Ok(())
+                }
+                Err(e) => {
+                    operation_clone.lock().await.status =
+                        crate::operations::OperationStatus::Failed(format!("{e}"));
+                    Err(anyhow::anyhow!("S3 copy failed: {e}"))
+                }
             }
-            Err(_) => {
-                // Fallback to stream-based copy (cross-account/region) with progress
-                let stream_result = dest_manager
-                    .stream_copy_from_with_progress(
-                        &src_manager,
-                        &source_key,
-                        &dest_key,
-                        Some(progress_callback),
-                    )
-                    .await;
+        } else {
+            // Same profile: Try server-side copy first (faster, no data transfer)
+            let result = dest_manager
+                .copy_from_bucket_with_progress(
+                    &src_bucket,
+                    &source_key,
+                    &dest_key,
+                    Some(progress_callback.clone()),
+                )
+                .await;
 
-                match stream_result {
-                    Ok(_) => {
-                        operation_clone.lock().await.status =
-                            crate::operations::OperationStatus::Completed;
-                        Ok(())
-                    }
-                    Err(e) => {
-                        operation_clone.lock().await.status =
-                            crate::operations::OperationStatus::Failed(format!("{e}"));
-                        Err(anyhow::anyhow!("S3 copy failed: {e}"))
+            match result {
+                Ok(_) => {
+                    operation_clone.lock().await.status =
+                        crate::operations::OperationStatus::Completed;
+                    Ok(())
+                }
+                Err(_) => {
+                    // Fallback to stream-based copy if server-side fails
+                    let stream_result = dest_manager
+                        .stream_copy_from_with_progress(
+                            &src_manager,
+                            &source_key,
+                            &dest_key,
+                            Some(progress_callback),
+                        )
+                        .await;
+
+                    match stream_result {
+                        Ok(_) => {
+                            operation_clone.lock().await.status =
+                                crate::operations::OperationStatus::Completed;
+                            Ok(())
+                        }
+                        Err(e) => {
+                            operation_clone.lock().await.status =
+                                crate::operations::OperationStatus::Failed(format!("{e}"));
+                            Err(anyhow::anyhow!("S3 copy failed: {e}"))
+                        }
                     }
                 }
             }
