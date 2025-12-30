@@ -1,4 +1,5 @@
-use crate::app::{App, PanelType, Screen};
+use crate::app::{App, Screen};
+use crate::menu::{get_advanced_menu, get_menu_items};
 use crate::message::Message;
 use crossterm::event::{KeyCode, KeyModifiers};
 
@@ -23,12 +24,32 @@ pub fn key_to_message(app: &App, key: KeyCode, modifiers: KeyModifiers) -> Optio
 }
 
 fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
-    // Get active panel type without mutable borrow
-    let active_panel_type = match app.active_panel {
-        crate::app::ActivePanel::Left => &app.left_panel.panel_type,
-        crate::app::ActivePanel::Right => &app.right_panel.panel_type,
+    // Get active panel reference
+    let active_panel = match app.active_panel {
+        crate::app::ActivePanel::Left => &app.left_panel,
+        crate::app::ActivePanel::Right => &app.right_panel,
     };
 
+    // Handle F1-F10 function keys using MenuItem system
+    if let KeyCode::F(n) = key {
+        // Get menu items based on mode
+        let menu_items = if !app.advanced_menu.is_empty() {
+            // Custom menu for library usage
+            return handle_custom_menu_key(app, n);
+        } else if app.advanced_mode {
+            get_advanced_menu()
+        } else {
+            get_menu_items(app, active_panel)
+        };
+
+        // Find matching menu item by key number
+        let key_str = format!("{n:02}");
+        if let Some(item) = menu_items.iter().find(|item| item.key == key_str) {
+            return item.get_action(app, active_panel);
+        }
+    }
+
+    // Handle non-function keys
     match key {
         KeyCode::Char('x') | KeyCode::Char('X') => {
             // Cancel transfer if one is running
@@ -66,8 +87,8 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
             // Unfocus queue with ESC
             Some(Message::ToggleQueueFocus)
         }
-        KeyCode::Char('q') | KeyCode::F(10) => Some(Message::Quit),
-        KeyCode::Char('?') | KeyCode::F(1) => Some(Message::ShowHelp),
+        KeyCode::Char('q') => Some(Message::Quit),
+        KeyCode::Char('?') => Some(Message::ShowHelp),
         KeyCode::F(12) => Some(Message::ToggleLocalFilesystem),
         KeyCode::Up => Some(Message::NavigateUp),
         KeyCode::Down => Some(Message::NavigateDown),
@@ -77,41 +98,25 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::End => Some(Message::NavigateEnd),
         KeyCode::Tab => Some(Message::SwitchPanel),
         KeyCode::Enter => Some(Message::EnterSelected),
-        KeyCode::F(2) => Some(Message::ShowSortDialog),
-        KeyCode::F(4) => Some(Message::ShowFilterPrompt),
-        KeyCode::F(7) => match active_panel_type {
-            PanelType::ModeSelection => None,
-            PanelType::DriveSelection => None,
-            PanelType::BucketList { .. } => Some(Message::ShowConfigForm),
-            PanelType::S3Browser { .. } | PanelType::LocalFilesystem { .. } => {
-                Some(Message::ShowCreateFolderPrompt)
-            }
-            _ => None,
-        },
-        KeyCode::F(3) => match active_panel_type {
-            PanelType::ModeSelection => None,
-            PanelType::DriveSelection => None,
-            PanelType::ProfileList => Some(Message::ShowProfileConfigForm),
-            PanelType::BucketList { .. } => Some(Message::EditBucketConfig),
-            PanelType::S3Browser { .. } | PanelType::LocalFilesystem { .. } => {
-                Some(Message::ViewFile)
-            }
-        },
-        KeyCode::F(5) => Some(Message::CopyToOtherPanel),
-        KeyCode::F(6) => {
-            if matches!(
-                active_panel_type,
-                PanelType::S3Browser { .. } | PanelType::LocalFilesystem { .. }
-            ) {
-                Some(Message::ShowRenamePrompt)
-            } else {
-                None
-            }
-        }
-        KeyCode::Delete | KeyCode::F(8) => Some(Message::DeleteFile),
-        KeyCode::F(9) => Some(Message::ToggleAdvancedMode),
+        KeyCode::Delete => Some(Message::DeleteFile),
         _ => None,
     }
+}
+
+/// Handle F-key press when custom menu is set (for library usage)
+fn handle_custom_menu_key(app: &App, key_num: u8) -> Option<Message> {
+    let key_str = format!("{key_num:02}");
+
+    // Find matching menu item in custom menu
+    for (k, label) in &app.advanced_menu {
+        if *k == key_str && !label.is_empty() {
+            // Custom menu found, but we don't have the action here
+            // Return None for library usage
+            return None;
+        }
+    }
+
+    None
 }
 
 fn sort_dialog_key_to_message(key: KeyCode) -> Option<Message> {

@@ -13,7 +13,8 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{ActivePanel, App, PanelType, Screen};
+use crate::app::{ActivePanel, App, Screen};
+use crate::menu::{get_advanced_menu, get_menu_items};
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     // Draw the base screen
@@ -113,84 +114,22 @@ fn draw_dual_panel(f: &mut Frame, app: &mut App) {
         ActivePanel::Right => &app.right_panel,
     };
 
-    let menu_items: &[(&str, &str)] = if app.advanced_mode {
-        &app.advanced_menu
+    // Get menu items using centralized system
+    let menu_items: Vec<(&str, &str)> = if !app.advanced_menu.is_empty() {
+        // Use custom menu for library usage
+        app.advanced_menu.to_vec()
+    } else if app.advanced_mode {
+        // F9 pressed - use default advanced menu
+        get_advanced_menu()
+            .iter()
+            .map(|item| (item.key, item.get_label(app, active_panel)))
+            .collect()
     } else {
-        // Normal Mode
-        match &active_panel.panel_type {
-            PanelType::ModeSelection => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", ""),
-                ("04", "Filter"),
-                ("05", ""),
-                ("06", ""),
-                ("07", ""),
-                ("08", ""),
-                ("09", ""),
-                ("10", "Quit"),
-            ],
-            PanelType::DriveSelection => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", ""),
-                ("04", "Filter"),
-                ("05", ""),
-                ("06", ""),
-                ("07", ""),
-                ("08", ""),
-                ("09", ""),
-                ("10", "Quit"),
-            ],
-            PanelType::ProfileList => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", "Edit"),
-                ("04", "Filter"),
-                ("05", ""),
-                ("06", ""),
-                ("07", ""),
-                ("08", ""),
-                ("09", "Advanced"),
-                ("10", "Quit"),
-            ],
-            PanelType::BucketList { .. } => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", "Edit Config"),
-                ("04", "Filter"),
-                ("05", ""),
-                ("06", ""),
-                ("07", "Add Bucket Conf"),
-                ("08", "Del Bucket Conf"),
-                ("09", "Advanced"),
-                ("10", "Quit"),
-            ],
-            PanelType::S3Browser { .. } => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", "View"),
-                ("04", "Filter"),
-                ("05", "Copy File"),
-                ("06", "Rename"),
-                ("07", "Mkdir"),
-                ("08", "Delete"),
-                ("09", "Advanced"),
-                ("10", "Quit"),
-            ],
-            PanelType::LocalFilesystem { .. } => &[
-                ("01", "Help"),
-                ("02", "Sort"),
-                ("03", "View"),
-                ("04", "Filter"),
-                ("05", "Copy File"),
-                ("06", "Rename"),
-                ("07", "Mkdir"),
-                ("08", "Delete"),
-                ("09", "Advanced"),
-                ("10", "Quit"),
-            ],
-        }
+        // Normal mode - get panel-specific menu
+        get_menu_items(app, active_panel)
+            .iter()
+            .map(|item| (item.key, item.get_label(app, active_panel)))
+            .collect()
     };
 
     let mut spans = Vec::new();

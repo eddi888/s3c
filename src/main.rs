@@ -8,6 +8,7 @@ use std::io;
 
 mod app;
 mod handlers;
+mod menu;
 mod message;
 mod models;
 mod operations;
