@@ -350,6 +350,15 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
             handlers::show_delete_confirmation_dialog(app);
             Ok(None)
         }
+        Message::ShowDeleteConfirmation { path, name, is_dir } => {
+            app.delete_confirmation.path = path;
+            app.delete_confirmation.name = name;
+            app.delete_confirmation.is_dir = is_dir;
+            app.delete_confirmation.button = 0;
+            app.prev_screen = Some(app.screen.clone());
+            app.screen = super::Screen::DeleteConfirmation;
+            Ok(None)
+        }
         Message::CopyToOtherPanel => {
             app.copy_to_other_panel().await?;
             Ok(None)

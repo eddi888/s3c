@@ -11,4 +11,4 @@ pub use run::run_app;
 
 // Export for library usage
 #[allow(unused_imports)]
-pub use run::process_background_tasks;
+pub use run::{process_background_tasks, process_setup_script};

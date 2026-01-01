@@ -1,11 +1,6 @@
 use anyhow::Result;
-use crossterm::{
-    event::{self, Event, KeyEventKind},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
+use crossterm::event::{self, Event, KeyEventKind};
 use ratatui::Terminal;
-use std::io;
 
 use crate::app::{self, App};
 use crate::handlers::key_to_message;
@@ -21,65 +16,9 @@ pub async fn run_app<B: ratatui::backend::Backend>(
     let mut needs_render = true;
 
     loop {
-        // Check if we need to run a script interactively
-        if app.script.needs_terminal {
-            if let (Some(script), Some(profile), bucket_opt) = (
-                app.script.pending_script.take(),
-                app.script.pending_profile.take(),
-                app.script.pending_bucket.take(),
-            ) {
-                app.script.needs_terminal = false;
-
-                // Suspend TUI
-                disable_raw_mode()?;
-                execute!(io::stdout(), LeaveAlternateScreen)?;
-
-                // Run script interactively
-                println!("Running setup script: {script}");
-
-                // Platform-specific shell execution
-                #[cfg(target_os = "windows")]
-                let status = std::process::Command::new("cmd")
-                    .arg("/C")
-                    .arg(&script)
-                    .status();
-
-                #[cfg(not(target_os = "windows"))]
-                let status = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(&script)
-                    .status();
-
-                // Resume TUI
-                enable_raw_mode()?;
-                execute!(io::stdout(), EnterAlternateScreen)?;
-                terminal.clear()?;
-
-                // Check result and continue
-                match status {
-                    Ok(exit_status) if exit_status.success() => {
-                        if let Some(Some(bucket)) = bucket_opt {
-                            // Continue loading bucket without script
-                            app::navigation::load_s3_bucket_no_script(app, profile, bucket).await?;
-                        } else {
-                            // Just show bucket list for profile
-                            let buckets = app.config_manager.get_buckets_for_profile(&profile);
-                            let panel = app.get_active_panel();
-                            panel.panel_type = app::PanelType::BucketList { profile };
-                            panel
-                                .list_model
-                                .set_items(app::converters::buckets_to_items(buckets));
-                            panel.selected_index = 0;
-                        }
-                    }
-                    Ok(_) => {
-                        app.show_error("Setup script failed");
-                    }
-                    Err(e) => {
-                        app.show_error(&format!("Failed to execute setup script: {e}"));
-                    }
-                }
-            }
+        // Process setup scripts (centralized function)
+        if process_setup_script(app, terminal).await? {
+            needs_render = true;
         }
 
         // Process background tasks (progress updates, completion, queue management)
@@ -136,6 +75,84 @@ pub async fn run_app<B: ratatui::backend::Backend>(
     Ok(())
 }
 
+/// Process setup scripts that need terminal access
+/// Returns true if a script was executed and render is needed
+pub async fn process_setup_script<B: ratatui::backend::Backend>(
+    app: &mut App,
+    terminal: &mut ratatui::Terminal<B>,
+) -> Result<bool> {
+    use crossterm::{
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
+    use std::io;
+
+    if !app.script.needs_terminal {
+        return Ok(false);
+    }
+
+    if let (Some(script), Some(profile), bucket_opt) = (
+        app.script.pending_script.take(),
+        app.script.pending_profile.take(),
+        app.script.pending_bucket.take(),
+    ) {
+        app.script.needs_terminal = false;
+
+        // Suspend TUI
+        disable_raw_mode()?;
+        execute!(io::stdout(), LeaveAlternateScreen)?;
+
+        // Run script interactively
+        println!("Running setup script: {script}");
+
+        // Platform-specific shell execution
+        #[cfg(target_os = "windows")]
+        let status = std::process::Command::new("cmd")
+            .arg("/C")
+            .arg(&script)
+            .status();
+
+        #[cfg(not(target_os = "windows"))]
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&script)
+            .status();
+
+        // Resume TUI
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        terminal.clear()?;
+
+        // Check result and continue
+        match status {
+            Ok(exit_status) if exit_status.success() => {
+                if let Some(Some(bucket)) = bucket_opt {
+                    // Continue loading bucket without script
+                    crate::app::navigation::load_s3_bucket_no_script(app, profile, bucket).await?;
+                } else {
+                    // Just show bucket list for profile
+                    let buckets = app.config_manager.get_buckets_for_profile(&profile);
+                    let panel = app.get_active_panel();
+                    panel.panel_type = crate::app::PanelType::BucketList { profile };
+                    panel
+                        .list_model
+                        .set_items(crate::app::converters::buckets_to_items(buckets));
+                    panel.selected_index = 0;
+                }
+            }
+            Ok(_) => {
+                app.show_error("Setup script failed");
+            }
+            Err(e) => {
+                app.show_error(&format!("Failed to execute setup script: {e}"));
+            }
+        }
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 /// Process background transfer tasks and update progress
 /// This handles all queue processing logic in one place
 pub async fn process_background_tasks<B: ratatui::backend::Backend>(
@@ -189,6 +206,10 @@ pub async fn process_background_tasks<B: ratatui::backend::Backend>(
                     crate::operations::OperationType::Upload => {
                         app.show_success(&format!("Uploaded: {}", operation.source));
                         crate::app::navigation::reload_s3_browser(app).await?;
+                    }
+                    crate::operations::OperationType::Copy => {
+                        app.show_success(&format!("Copied: {}", operation.source));
+                        crate::app::navigation::reload_local_files(app).await?;
                     }
                     crate::operations::OperationType::S3Copy => {
                         app.show_success(&format!("S3 copy completed: {}", operation.source));
@@ -336,6 +357,10 @@ pub async fn start_next_queued_transfer(app: &mut App) -> Result<()> {
                         app.current_transfer_index = None;
                     }
                 }
+            }
+            crate::operations::OperationType::Copy => {
+                // Local → Local: Copy file
+                start_copy_task(app, operation, op.source.clone(), op.destination.clone()).await;
             }
             crate::operations::OperationType::S3Copy => {
                 // S3 → S3: Copy between buckets/providers
@@ -523,6 +548,67 @@ async fn start_upload_task(
                 operation_clone.lock().await.status =
                     crate::operations::OperationStatus::Failed(format!("{e}"));
                 Err(anyhow::anyhow!("Upload failed: {e}"))
+            }
+        }
+    });
+
+    app.background_transfer_task = Some(crate::app::BackgroundTransferTask {
+        task_handle,
+        progress_counter: transferred_counter,
+        operation,
+    });
+}
+
+async fn start_copy_task(
+    app: &mut App,
+    operation: std::sync::Arc<tokio::sync::Mutex<crate::operations::FileOperation>>,
+    source_path: String,
+    dest_path: String,
+) {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    let transferred_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let transferred_clone = transferred_counter.clone();
+
+    let operation_clone = operation.clone();
+    let task_handle = tokio::spawn(async move {
+        let source = PathBuf::from(&source_path);
+        let dest = PathBuf::from(&dest_path);
+
+        // Create parent directories for destination
+        if let Some(parent) = dest.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                operation_clone.lock().await.status = crate::operations::OperationStatus::Failed(
+                    format!("Failed to create destination directory: {e}"),
+                );
+                return Err(anyhow::anyhow!("Failed to create directory: {e}"));
+            }
+        }
+
+        // Copy file with progress tracking
+        match tokio::fs::metadata(&source).await {
+            Ok(_metadata) => {
+                // Simple copy using tokio::fs::copy
+                match tokio::fs::copy(&source, &dest).await {
+                    Ok(bytes_copied) => {
+                        transferred_clone.store(bytes_copied, std::sync::atomic::Ordering::Relaxed);
+                        operation_clone.lock().await.status =
+                            crate::operations::OperationStatus::Completed;
+                        Ok(())
+                    }
+                    Err(e) => {
+                        operation_clone.lock().await.status =
+                            crate::operations::OperationStatus::Failed(format!("{e}"));
+                        Err(anyhow::anyhow!("Copy failed: {e}"))
+                    }
+                }
+            }
+            Err(e) => {
+                operation_clone.lock().await.status = crate::operations::OperationStatus::Failed(
+                    format!("Source file not found: {e}"),
+                );
+                Err(anyhow::anyhow!("Source file error: {e}"))
             }
         }
     });
