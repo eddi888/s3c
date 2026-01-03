@@ -2,6 +2,19 @@ use crate::app::{App, PanelType};
 use crate::models::list::{ItemData, ItemType, PanelItem};
 use anyhow::Result;
 
+/// Extract S3 key from path by removing s3://bucket/ prefix
+fn extract_s3_key(path: &str) -> String {
+    if let Some(stripped) = path.strip_prefix("s3://") {
+        if let Some(slash_pos) = stripped.find('/') {
+            stripped[slash_pos + 1..].to_string()
+        } else {
+            path.to_string()
+        }
+    } else {
+        path.to_string()
+    }
+}
+
 pub async fn confirm_delete(app: &mut App) -> Result<()> {
     let path = app.delete_confirmation.path.clone();
     let is_dir = app.delete_confirmation.is_dir;
@@ -11,7 +24,10 @@ pub async fn confirm_delete(app: &mut App) -> Result<()> {
     match panel_type {
         PanelType::S3Browser { prefix, .. } => {
             if let Some(s3_manager) = &app.get_active_panel().s3_manager {
-                s3_manager.delete_object(&path).await?;
+                // Extract S3 key from path (remove s3://bucket/ prefix)
+                let key = extract_s3_key(&path);
+
+                s3_manager.delete_object(&key).await?;
 
                 // Reload
                 let objects = s3_manager.list_objects(&prefix).await?;
@@ -194,8 +210,12 @@ pub async fn rename_file(app: &mut App, old_path: String, new_path: String) -> R
     match panel_type {
         PanelType::S3Browser { prefix, .. } => {
             if let Some(s3_manager) = &app.get_active_panel().s3_manager {
-                s3_manager.copy_object(&old_path, &new_path).await?;
-                s3_manager.delete_object(&old_path).await?;
+                // Extract S3 keys from paths (remove s3://bucket/ prefix)
+                let old_key = extract_s3_key(&old_path);
+                let new_key = extract_s3_key(&new_path);
+
+                s3_manager.copy_object(&old_key, &new_key).await?;
+                s3_manager.delete_object(&old_key).await?;
 
                 let objects = s3_manager.list_objects(&prefix).await?;
                 let panel = app.get_active_panel();

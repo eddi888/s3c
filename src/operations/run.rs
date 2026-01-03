@@ -34,7 +34,7 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             #[cfg(target_os = "windows")]
             {
                 use std::io::Write;
-                let _ = io::stdout().flush();
+                let _ = std::io::stdout().flush();
             }
             last_render = now;
             needs_render = false;
