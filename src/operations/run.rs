@@ -26,6 +26,11 @@ pub async fn run_app<B: ratatui::backend::Backend>(
             needs_render = true;
         }
 
+        // Check if image preview loading is complete
+        if crate::app::handlers::check_image_loading_complete(app) {
+            needs_render = true;
+        }
+
         // Render only when needed and throttled
         let now = std::time::Instant::now();
         if needs_render && now.duration_since(last_render) >= render_interval {

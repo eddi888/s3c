@@ -7,6 +7,7 @@ pub mod operations;
 pub mod ui;
 
 // Public exports for use s3c as a library
+pub use app::handlers::check_image_loading_complete;
 pub use app::navigation::reload_s3_browser;
 pub use app::update;
 pub use app::{ActivePanel, App, InputMode, Panel, PanelType, Screen};
