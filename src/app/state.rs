@@ -35,8 +35,9 @@ pub struct DeleteConfirmationState {
 }
 
 /// State for generic input dialog
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum InputMode {
+    #[default]
     None,
     CreateFolder,
     Filter,
@@ -45,12 +46,6 @@ pub enum InputMode {
         local_file_path: PathBuf,
         local_file_name: String,
     },
-}
-
-impl Default for InputMode {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Debug, Clone, Default)]

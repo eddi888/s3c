@@ -33,10 +33,7 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
     // Handle F1-F10 function keys using MenuItem system
     if let KeyCode::F(n) = key {
         // Get menu items based on mode
-        let menu_items = if !app.advanced_menu.is_empty() {
-            // Custom menu for library usage
-            return handle_custom_menu_key(app, n);
-        } else if app.advanced_mode {
+        let menu_items = if app.advanced_mode {
             get_advanced_menu()
         } else {
             get_menu_items(app, active_panel)
@@ -103,22 +100,6 @@ fn dual_panel_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
     }
 }
 
-/// Handle F-key press when custom menu is set (for library usage)
-fn handle_custom_menu_key(app: &App, key_num: u8) -> Option<Message> {
-    let key_str = format!("{key_num:02}");
-
-    // Find matching menu item in custom menu
-    for (k, label) in &app.advanced_menu {
-        if *k == key_str && !label.is_empty() {
-            // Custom menu found, but we don't have the action here
-            // Return None for library usage
-            return None;
-        }
-    }
-
-    None
-}
-
 fn sort_dialog_key_to_message(key: KeyCode) -> Option<Message> {
     match key {
         KeyCode::Up => Some(Message::SortDialogUp),
@@ -174,22 +155,8 @@ fn config_form_key_to_message(app: &App, key: KeyCode) -> Option<Message> {
         KeyCode::Home => Some(Message::ConfigFormHome),
         KeyCode::End => Some(Message::ConfigFormEnd),
         KeyCode::Delete => Some(Message::ConfigFormDelete),
-        KeyCode::Char('+') => {
-            let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6
-            if app.config_form.field >= button_field {
-                Some(Message::ConfigFormAddRole)
-            } else {
-                Some(Message::ConfigFormChar { c: '+' })
-            }
-        }
-        KeyCode::Char('-') => {
-            let button_field = app.config_form.roles.len() + 6; // Changed from 4 to 6
-            if app.config_form.field >= button_field {
-                Some(Message::ConfigFormRemoveRole)
-            } else {
-                Some(Message::ConfigFormChar { c: '-' })
-            }
-        }
+        KeyCode::F(7) => Some(Message::ConfigFormAddRole),
+        KeyCode::F(8) => Some(Message::ConfigFormRemoveRole),
         KeyCode::Char(c) => Some(Message::ConfigFormChar { c }),
         KeyCode::Backspace => Some(Message::ConfigFormBackspace),
         KeyCode::Enter => {

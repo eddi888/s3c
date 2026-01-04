@@ -437,7 +437,7 @@ pub fn draw_config_form(f: &mut Frame, app: &App) {
     }
 
     if !app.config_form.roles.is_empty() && app.config_form.roles.len() < role_chunks.len() {
-        let help_text = Paragraph::new("Press + to add role, - to remove last")
+        let help_text = Paragraph::new("Press F7 to add role, F8 to remove last")
             .style(Style::default().fg(Color::Gray));
         f.render_widget(help_text, role_chunks[app.config_form.roles.len()]);
     }

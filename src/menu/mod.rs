@@ -80,7 +80,7 @@ pub fn get_menu_items(_app: &App, panel: &Panel) -> Vec<MenuItem> {
             MenuItem::empty("06"),
             MenuItem::empty("07"),
             MenuItem::empty("08"),
-            MenuItem::empty("09"),
+            MenuItem::static_item("09", "Advanced", ToggleAdvancedMode),
             MenuItem::static_item("10", "Quit", Quit),
         ],
         PanelType::DriveSelection => vec![
@@ -92,7 +92,7 @@ pub fn get_menu_items(_app: &App, panel: &Panel) -> Vec<MenuItem> {
             MenuItem::empty("06"),
             MenuItem::empty("07"),
             MenuItem::empty("08"),
-            MenuItem::empty("09"),
+            MenuItem::static_item("09", "Advanced", ToggleAdvancedMode),
             MenuItem::static_item("10", "Quit", Quit),
         ],
         PanelType::ProfileList => vec![
@@ -110,12 +110,12 @@ pub fn get_menu_items(_app: &App, panel: &Panel) -> Vec<MenuItem> {
         PanelType::BucketList { .. } => vec![
             MenuItem::static_item("01", "Help", ShowHelp),
             MenuItem::static_item("02", "Sort", ShowSortDialog),
-            MenuItem::static_item("03", "Edit Config", EditBucketConfig),
+            MenuItem::static_item("03", "Edit Conf", EditBucketConfig),
             MenuItem::static_item("04", "Filter", ShowFilterPrompt),
             MenuItem::empty("05"),
             MenuItem::empty("06"),
-            MenuItem::static_item("07", "Add Bucket Conf", ShowConfigForm),
-            MenuItem::dynamic("08", |_, _| "Del Bucket Conf", get_delete_action),
+            MenuItem::static_item("07", "Add Conf", ShowConfigForm),
+            MenuItem::dynamic("08", |_, _| "Del Conf", get_delete_action),
             MenuItem::static_item("09", "Advanced", ToggleAdvancedMode),
             MenuItem::static_item("10", "Quit", Quit),
         ],

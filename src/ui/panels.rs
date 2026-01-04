@@ -198,7 +198,11 @@ pub fn draw_panel(
                         let size_str = item.size.map(format_size).unwrap_or_default();
                         let modified_str = item
                             .modified
-                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
+                            .map(|m| {
+                                m.with_timezone(&chrono::Local)
+                                    .format("%Y-%m-%d %H:%M")
+                                    .to_string()
+                            })
                             .unwrap_or_default();
                         (format!("📄 {display_name}"), size_str, modified_str)
                     }
@@ -249,7 +253,11 @@ pub fn draw_panel(
                         let size_str = item.size.map(format_size).unwrap_or_default();
                         let modified_str = item
                             .modified
-                            .map(|m| m.format("%Y-%m-%d %H:%M").to_string())
+                            .map(|m| {
+                                m.with_timezone(&chrono::Local)
+                                    .format("%Y-%m-%d %H:%M")
+                                    .to_string()
+                            })
                             .unwrap_or_default();
                         (format!("📄 {}", item.name), size_str, modified_str)
                     }

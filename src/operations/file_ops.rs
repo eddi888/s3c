@@ -134,6 +134,15 @@ impl App {
                         format!("{dest_prefix}{name}")
                     };
 
+                    // Critical: Prevent copying S3 object to itself
+                    if source_profile == dest_profile
+                        && source_bucket == dest_bucket
+                        && source_key == &dest_key
+                    {
+                        self.show_error("Cannot copy file to itself");
+                        return Ok(());
+                    }
+
                     // Queue the S3→S3 copy operation
                     let operation = FileOperation {
                         operation_type: OperationType::S3Copy,
@@ -176,6 +185,12 @@ impl App {
                     let name = name.clone();
                     let dest_file_path = dest_path.join(&name);
                     let file_size = size.unwrap_or(0);
+
+                    // Critical: Prevent copying file to itself (would truncate to 0 bytes)
+                    if source_file_path == dest_file_path {
+                        self.show_error("Cannot copy file to itself");
+                        return Ok(());
+                    }
 
                     // Create file operation and add to queue
                     self.file_operation_queue.push(FileOperation {
