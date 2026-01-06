@@ -59,7 +59,14 @@ pub fn draw_image_preview(f: &mut Frame, app: &App) {
             // Force unicode halfblocks protocol explicitly
             use ratatui_image::picker::ProtocolType;
             let font_size = FontSize::default();
+
+            // from_termios() is only available on Unix systems
+            #[cfg(unix)]
             let mut picker = Picker::from_termios().unwrap_or_else(|_| Picker::new(font_size));
+
+            #[cfg(not(unix))]
+            let mut picker = Picker::new(font_size);
+
             // Override to force halfblocks regardless of terminal capabilities
             picker.protocol_type = ProtocolType::Halfblocks;
 
