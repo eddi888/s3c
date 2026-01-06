@@ -241,6 +241,12 @@ impl App {
     }
 
     pub fn go_back(&mut self) {
+        // Clear image preview when leaving
+        if self.screen == Screen::ImagePreview {
+            self.image_preview = None;
+            self.image_preview_loading = false;
+        }
+
         if let Some(prev) = self.prev_screen.take() {
             self.screen = prev;
         } else {

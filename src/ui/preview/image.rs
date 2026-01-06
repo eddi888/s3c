@@ -54,18 +54,21 @@ pub fn draw_image_preview(f: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::Yellow));
         f.render_widget(paragraph, chunks[0]);
     } else if let Some(ref preview) = app.image_preview {
-        // Try to render image with ratatui-image
+        // Try to render image with ratatui-image using unicode halfblocks ONLY
         if let Ok(dyn_img) = image::load_from_memory(&preview.image_data) {
-            // Use Picker to detect terminal capabilities
-            let mut picker =
-                Picker::from_termios().unwrap_or_else(|_| Picker::new(FontSize::default()));
+            // Force unicode halfblocks protocol explicitly
+            use ratatui_image::picker::ProtocolType;
+            let font_size = FontSize::default();
+            let mut picker = Picker::from_termios().unwrap_or_else(|_| Picker::new(font_size));
+            // Override to force halfblocks regardless of terminal capabilities
+            picker.protocol_type = ProtocolType::Halfblocks;
 
-            // Create protocol with the image
-            let mut protocol = picker.new_resize_protocol(dyn_img);
+            // Create resize protocol (will use halfblocks)
+            let mut image_state = picker.new_resize_protocol(dyn_img);
 
-            // Render the image
+            // Render the image as colored blocks
             let image_widget = StatefulImage::new(None);
-            f.render_stateful_widget(image_widget, chunks[0], &mut protocol);
+            f.render_stateful_widget(image_widget, chunks[0], &mut image_state);
         } else {
             // Fallback if image loading fails
             let msg = "Failed to load image.\n\nPress Esc to close.";

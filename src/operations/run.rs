@@ -10,7 +10,10 @@ use crate::ui;
 pub async fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     app: &mut App,
-) -> Result<()> {
+) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut last_render = std::time::Instant::now();
     let render_interval = std::time::Duration::from_millis(100); // Limit to 10 FPS for smooth rendering
     let mut needs_render = true;
@@ -64,7 +67,8 @@ pub async fn run_app<B: ratatui::backend::Backend>(
                         while let Some(message) = current_msg {
                             current_msg = app::update(app, message).await?;
                         }
-                        needs_render = true; // User input processed, need to render
+                        // Force render after message processing
+                        needs_render = true;
                     }
                 }
                 Event::Resize(_, _) => {
@@ -85,7 +89,10 @@ pub async fn run_app<B: ratatui::backend::Backend>(
 pub async fn process_setup_script<B: ratatui::backend::Backend>(
     app: &mut App,
     terminal: &mut ratatui::Terminal<B>,
-) -> Result<bool> {
+) -> Result<bool>
+where
+    B::Error: Send + Sync + 'static,
+{
     use crossterm::{
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -163,7 +170,10 @@ pub async fn process_setup_script<B: ratatui::backend::Backend>(
 pub async fn process_background_tasks<B: ratatui::backend::Backend>(
     app: &mut App,
     terminal: &mut ratatui::Terminal<B>,
-) -> Result<bool> {
+) -> Result<bool>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut needs_render = false;
 
     // Check background transfer task status
