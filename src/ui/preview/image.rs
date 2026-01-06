@@ -4,7 +4,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
-use ratatui_image::{picker::Picker, FontSize, StatefulImage};
+use ratatui_image::{picker::Picker, StatefulImage};
 
 use crate::app::App;
 
@@ -54,30 +54,19 @@ pub fn draw_image_preview(f: &mut Frame, app: &App) {
             .style(Style::default().fg(Color::Yellow));
         f.render_widget(paragraph, chunks[0]);
     } else if let Some(ref preview) = app.image_preview {
-        // Try to render image with ratatui-image using unicode halfblocks ONLY
+        // Try to render image with ratatui-image
         if let Ok(dyn_img) = image::load_from_memory(&preview.image_data) {
-            // Force unicode halfblocks protocol explicitly
             use ratatui_image::picker::ProtocolType;
-            let font_size = FontSize::default();
 
-            // from_termios() is only available on Unix systems
-            #[cfg(unix)]
-            let mut picker = Picker::from_termios().unwrap_or_else(|_| Picker::new(font_size));
-
-            #[cfg(not(unix))]
-            let mut picker = Picker::new(font_size);
-
-            // Override to force halfblocks regardless of terminal capabilities
+            // Create picker with assumed font size (width, height) - works cross-platform
+            // FontSize is just (u16, u16) representing character cell dimensions in pixels
+            let mut picker = Picker::new((8, 16));
             picker.protocol_type = ProtocolType::Halfblocks;
 
-            // Create resize protocol (will use halfblocks)
             let mut image_state = picker.new_resize_protocol(dyn_img);
-
-            // Render the image as colored blocks
             let image_widget = StatefulImage::new(None);
             f.render_stateful_widget(image_widget, chunks[0], &mut image_state);
         } else {
-            // Fallback if image loading fails
             let msg = "Failed to load image.\n\nPress Esc to close.";
             let paragraph = Paragraph::new(msg).alignment(Alignment::Center);
             f.render_widget(paragraph, chunks[0]);
