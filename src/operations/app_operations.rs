@@ -22,6 +22,10 @@ pub async fn confirm_delete(app: &mut App) -> Result<()> {
     let panel_type = app.get_active_panel().panel_type.clone();
 
     match panel_type {
+        PanelType::BucketList { profile: _ } => {
+            // For bucket deletion, call the dedicated handler
+            crate::app::handlers::forms::delete_bucket_config(app)?;
+        }
         PanelType::S3Browser { prefix, .. } => {
             if let Some(s3_manager) = &app.get_active_panel().s3_manager {
                 // Extract S3 key from path (remove s3://bucket/ prefix)

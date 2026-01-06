@@ -187,25 +187,37 @@ fn get_delete_action(_app: &App, panel: &Panel) -> Option<Message> {
         return None;
     }
 
-    let path = match &panel.panel_type {
+    match &panel.panel_type {
+        PanelType::BucketList { .. } => {
+            // For bucket list, trigger delete confirmation dialog
+            Some(Message::ShowDeleteConfirmation {
+                path: String::new(), // Not used for bucket deletion
+                name: item.name.clone(),
+                is_dir: false,
+            })
+        }
         PanelType::S3Browser {
             profile: _,
             bucket,
             prefix,
         } => {
-            format!("s3://{}/{}{}", bucket, prefix, item.name)
+            let path = format!("s3://{}/{}{}", bucket, prefix, item.name);
+            Some(Message::ShowDeleteConfirmation {
+                path,
+                name: item.name.clone(),
+                is_dir: matches!(item.item_type, ItemType::Directory),
+            })
         }
         PanelType::LocalFilesystem { path } => {
-            format!("{}/{}", path.display(), item.name)
+            let path = format!("{}/{}", path.display(), item.name);
+            Some(Message::ShowDeleteConfirmation {
+                path,
+                name: item.name.clone(),
+                is_dir: matches!(item.item_type, ItemType::Directory),
+            })
         }
-        _ => return None,
-    };
-
-    Some(Message::ShowDeleteConfirmation {
-        path,
-        name: item.name.clone(),
-        is_dir: matches!(item.item_type, ItemType::Directory),
-    })
+        _ => None,
+    }
 }
 
 /// Get default advanced mode menu
