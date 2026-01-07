@@ -15,10 +15,31 @@ pub async fn show_image_preview(app: &mut App, source: PreviewSource) -> Result<
     app.image_preview_receiver = Some(rx);
 
     // Image im Hintergrund laden (nicht-blockierend)
-    tokio::spawn(async move {
-        let result = crate::operations::preview::load_image(source).await;
-        let _ = tx.send(result); // Ergebnis zurück senden
-    });
+    match source {
+        PreviewSource::LocalFile { .. } => {
+            tokio::spawn(async move {
+                let result = crate::operations::preview::load_image(source).await;
+                let _ = tx.send(result);
+            });
+        }
+        PreviewSource::S3Object { key, bucket } => {
+            // Clone S3Manager für async task
+            let s3_manager = app.get_active_panel().s3_manager.clone();
+            tokio::spawn(async move {
+                let result = if let Some(s3_manager) = s3_manager {
+                    crate::operations::preview::image_loader::load_s3_image(
+                        &key,
+                        &bucket,
+                        &s3_manager,
+                    )
+                    .await
+                } else {
+                    Err(anyhow::anyhow!("No S3 connection available"))
+                };
+                let _ = tx.send(result);
+            });
+        }
+    }
 
     Ok(())
 }
