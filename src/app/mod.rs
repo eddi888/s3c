@@ -84,6 +84,7 @@ pub struct App {
     // UI Messages
     pub error_message: String,
     pub success_message: String,
+    pub info_message: String,
 
     // Consolidated UI State
     pub config_form: ConfigFormState,
@@ -105,6 +106,9 @@ pub struct App {
     pub selected_queue_index: usize,
     pub queue_focused: bool, // Whether queue panel has focus for navigation
     pub background_transfer_task: Option<BackgroundTransferTask>,
+
+    // Background S3 list operation
+    pub background_list_task: Option<BackgroundListTask>,
 }
 
 /// Background file transfer task (non-blocking)
@@ -112,6 +116,16 @@ pub struct BackgroundTransferTask {
     pub task_handle: tokio::task::JoinHandle<anyhow::Result<()>>,
     pub progress_counter: std::sync::Arc<std::sync::atomic::AtomicU64>,
     pub operation: std::sync::Arc<tokio::sync::Mutex<FileOperation>>,
+}
+
+/// Background S3 list operation task (non-blocking)
+pub struct BackgroundListTask {
+    pub task_handle: tokio::task::JoinHandle<anyhow::Result<Vec<crate::operations::s3::S3Object>>>,
+    pub profile: String,
+    pub bucket: String,
+    pub prefix: String,
+    pub target_panel: ActivePanel,
+    pub start_time: std::time::Instant,
 }
 
 impl Panel {
@@ -168,6 +182,7 @@ impl App {
             advanced_menu: vec![], // Empty - use panel menus or F9 default
             error_message: String::new(),
             success_message: String::new(),
+            info_message: String::new(),
             config_form: ConfigFormState::default(),
             profile_form: ProfileFormState::default(),
             file_content_preview: None,
@@ -183,6 +198,7 @@ impl App {
             selected_queue_index: 0,
             queue_focused: false, // Start unfocused
             background_transfer_task: None,
+            background_list_task: None,
         };
 
         // Load local files for right panel
@@ -231,6 +247,14 @@ impl App {
 
     pub fn show_success(&mut self, message: &str) {
         self.success_message = message.to_string();
+    }
+
+    pub fn show_info(&mut self, message: &str) {
+        self.info_message = message.to_string();
+    }
+
+    pub fn clear_info(&mut self) {
+        self.info_message.clear();
     }
 
     pub fn switch_panel(&mut self) {

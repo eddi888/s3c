@@ -108,43 +108,55 @@ impl S3Manager {
     pub async fn list_objects(&self, prefix: &str) -> Result<Vec<S3Object>> {
         let mut objects = Vec::new();
         let prefix = if prefix.is_empty() { "" } else { prefix };
+        let mut continuation_token: Option<String> = None;
 
-        let resp = self
-            .client
-            .list_objects_v2()
-            .bucket(&self.bucket)
-            .prefix(prefix)
-            .delimiter("/")
-            .send()
-            .await
-            .map_err(|e| {
+        loop {
+            let mut request = self
+                .client
+                .list_objects_v2()
+                .bucket(&self.bucket)
+                .prefix(prefix)
+                .delimiter("/");
+
+            if let Some(token) = continuation_token {
+                request = request.continuation_token(token);
+            }
+
+            let resp = request.send().await.map_err(|e| {
                 let bucket = &self.bucket;
                 anyhow::anyhow!("Failed to list objects in bucket '{bucket}': {e:?}")
             })?;
 
-        for cp in resp.common_prefixes() {
-            if let Some(prefix_str) = cp.prefix() {
-                objects.push(S3Object {
-                    key: prefix_str.to_string(),
-                    size: 0,
-                    last_modified: None,
-                    is_prefix: true,
-                });
-            }
-        }
-
-        for obj in resp.contents() {
-            if let Some(key) = obj.key() {
-                if key != prefix && !key.ends_with('/') {
+            for cp in resp.common_prefixes() {
+                if let Some(prefix_str) = cp.prefix() {
                     objects.push(S3Object {
-                        key: key.to_string(),
-                        size: obj.size().unwrap_or(0),
-                        last_modified: obj
-                            .last_modified()
-                            .map(|t| DateTime::from_timestamp(t.secs(), 0).unwrap_or_default()),
-                        is_prefix: false,
+                        key: prefix_str.to_string(),
+                        size: 0,
+                        last_modified: None,
+                        is_prefix: true,
                     });
                 }
+            }
+
+            for obj in resp.contents() {
+                if let Some(key) = obj.key() {
+                    if key != prefix && !key.ends_with('/') {
+                        objects.push(S3Object {
+                            key: key.to_string(),
+                            size: obj.size().unwrap_or(0),
+                            last_modified: obj
+                                .last_modified()
+                                .map(|t| DateTime::from_timestamp(t.secs(), 0).unwrap_or_default()),
+                            is_prefix: false,
+                        });
+                    }
+                }
+            }
+
+            if resp.is_truncated().unwrap_or(false) {
+                continuation_token = resp.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
             }
         }
 

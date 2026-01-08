@@ -299,35 +299,12 @@ pub async fn load_s3_bucket_no_script(
     // Use base_prefix if configured
     let initial_prefix = bucket_config.base_prefix.clone().unwrap_or_default();
 
-    match s3_manager.list_objects(&initial_prefix).await {
-        Ok(objects) => {
-            let panel = app.get_active_panel();
-            panel.panel_type = PanelType::S3Browser {
-                profile,
-                bucket,
-                prefix: initial_prefix,
-            };
-            panel
-                .list_model
-                .set_items(super::converters::s3_objects_to_items(objects));
-            panel.selected_index = 0;
-            panel.s3_manager = Some(s3_manager);
-        }
-        Err(e) => {
-            let error_msg = format!("{e}");
-            if error_msg.contains("NoSuchBucket") {
-                app.show_error(&format!(
-                    "Bucket '{bucket}' does not exist or is in wrong region"
-                ));
-            } else if error_msg.contains("AccessDenied") {
-                app.show_error(&format!(
-                    "Access denied to bucket '{bucket}': Check permissions"
-                ));
-            } else {
-                app.show_error(&format!("Failed to list bucket '{bucket}': {e}"));
-            }
-        }
-    }
+    // Store s3_manager in panel first
+    let panel = app.get_active_panel();
+    panel.s3_manager = Some(s3_manager);
+
+    // Start background task to list objects (non-blocking)
+    start_background_list_objects(app, profile, bucket, initial_prefix);
 
     Ok(())
 }
@@ -338,19 +315,8 @@ async fn navigate_to_s3_prefix(
     bucket: String,
     prefix: String,
 ) -> Result<()> {
-    let panel = app.get_active_panel();
-    if let Some(ref s3_manager) = panel.s3_manager {
-        let objects = s3_manager.list_objects(&prefix).await?;
-        panel.panel_type = PanelType::S3Browser {
-            profile,
-            bucket,
-            prefix,
-        };
-        panel
-            .list_model
-            .set_items(super::converters::s3_objects_to_items(objects));
-        panel.selected_index = 0;
-    }
+    // Start background task to list objects (non-blocking)
+    start_background_list_objects(app, profile, bucket, prefix);
     Ok(())
 }
 
@@ -495,15 +461,66 @@ pub fn list_windows_drives() -> Vec<PathBuf> {
 }
 
 pub async fn reload_s3_browser(app: &mut App) -> Result<()> {
+    // Get panel info first
     let panel = app.get_inactive_panel_mut();
-    if let PanelType::S3Browser { prefix, .. } = &panel.panel_type {
-        let prefix_clone = prefix.clone();
-        if let Some(s3_manager) = &panel.s3_manager {
-            let objects = s3_manager.list_objects(&prefix_clone).await?;
-            panel
-                .list_model
-                .set_items(super::converters::s3_objects_to_items(objects));
-        }
+    if let PanelType::S3Browser {
+        profile,
+        bucket,
+        prefix,
+    } = &panel.panel_type
+    {
+        let profile = profile.clone();
+        let bucket = bucket.clone();
+        let prefix = prefix.clone();
+
+        // Switch to inactive panel to reload it
+        let original_panel = app.active_panel.clone();
+        app.switch_panel();
+
+        // Start background task
+        start_background_list_objects(app, profile, bucket, prefix);
+
+        // Switch back
+        app.active_panel = original_panel;
     }
     Ok(())
+}
+
+/// Start a background task to list S3 objects (non-blocking)
+pub fn start_background_list_objects(
+    app: &mut App,
+    profile: String,
+    bucket: String,
+    prefix: String,
+) {
+    // Don't start a new task if one is already running
+    if app.background_list_task.is_some() {
+        return;
+    }
+
+    // Get S3 manager and remember which panel we're loading into
+    let s3_manager = match app.get_active_panel().s3_manager.clone() {
+        Some(manager) => manager,
+        None => return,
+    };
+
+    let target_panel = app.active_panel.clone();
+
+    // Clone prefix for async task
+    let prefix_clone = prefix.clone();
+
+    // Spawn background task
+    let task_handle = tokio::spawn(async move { s3_manager.list_objects(&prefix_clone).await });
+
+    // Store task in app
+    app.background_list_task = Some(super::BackgroundListTask {
+        task_handle,
+        profile,
+        bucket,
+        prefix,
+        target_panel,
+        start_time: std::time::Instant::now(),
+    });
+
+    // Don't show loading indicator immediately - will show after 1 second if still running
 }

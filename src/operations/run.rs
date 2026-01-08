@@ -29,6 +29,11 @@ where
             needs_render = true;
         }
 
+        // Process background S3 list operations
+        if process_background_list_task(app, terminal).await? {
+            needs_render = true;
+        }
+
         // Check if image preview loading is complete
         if crate::app::handlers::check_image_loading_complete(app) {
             needs_render = true;
@@ -248,6 +253,77 @@ where
     // Check if no transfer is running but queue has pending items
     if app.background_transfer_task.is_none() && app.current_transfer_index.is_none() {
         start_next_queued_transfer(app).await?;
+    }
+
+    Ok(needs_render)
+}
+
+/// Process background S3 list operation and update UI
+/// Returns true if render is needed
+pub async fn process_background_list_task<B: ratatui::backend::Backend>(
+    app: &mut App,
+    _terminal: &mut ratatui::Terminal<B>,
+) -> Result<bool>
+where
+    B::Error: Send + Sync + 'static,
+{
+    let mut needs_render = false;
+
+    // Check task status and elapsed time first (immutable borrow)
+    let task_info = app
+        .background_list_task
+        .as_ref()
+        .map(|task| (task.task_handle.is_finished(), task.start_time.elapsed()));
+
+    if let Some((is_finished, elapsed)) = task_info {
+        // Show loading indicator only if task is running for more than 1 second
+        if !is_finished
+            && elapsed > std::time::Duration::from_secs(1)
+            && app.info_message.is_empty()
+        {
+            app.show_info("Loading S3 objects...");
+            needs_render = true;
+        }
+
+        // Check if task is finished
+        if is_finished {
+            let task = app.background_list_task.take().unwrap();
+
+            // Get result
+            match task.task_handle.await {
+                Ok(Ok(objects)) => {
+                    app.clear_info();
+
+                    // Update the panel that started the task (not necessarily the active one)
+                    let panel = match task.target_panel {
+                        crate::app::ActivePanel::Left => &mut app.left_panel,
+                        crate::app::ActivePanel::Right => &mut app.right_panel,
+                    };
+
+                    panel.panel_type = crate::app::PanelType::S3Browser {
+                        profile: task.profile,
+                        bucket: task.bucket,
+                        prefix: task.prefix,
+                    };
+                    panel
+                        .list_model
+                        .set_items(crate::app::converters::s3_objects_to_items(objects));
+                    panel.selected_index = 0;
+
+                    needs_render = true;
+                }
+                Ok(Err(e)) => {
+                    app.clear_info();
+                    app.show_error(&format!("Failed to load S3 objects: {}", e));
+                    needs_render = true;
+                }
+                Err(e) => {
+                    app.clear_info();
+                    app.show_error(&format!("Background task failed: {}", e));
+                    needs_render = true;
+                }
+            }
+        }
     }
 
     Ok(needs_render)

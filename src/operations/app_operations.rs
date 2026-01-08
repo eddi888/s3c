@@ -26,19 +26,27 @@ pub async fn confirm_delete(app: &mut App) -> Result<()> {
             // For bucket deletion, call the dedicated handler
             crate::app::handlers::forms::delete_bucket_config(app)?;
         }
-        PanelType::S3Browser { prefix, .. } => {
-            if let Some(s3_manager) = &app.get_active_panel().s3_manager {
+        PanelType::S3Browser {
+            profile,
+            bucket,
+            prefix,
+        } => {
+            // Get s3_manager first
+            let s3_manager = app.get_active_panel().s3_manager.clone();
+
+            if let Some(s3_manager) = s3_manager {
                 // Extract S3 key from path (remove s3://bucket/ prefix)
                 let key = extract_s3_key(&path);
 
                 s3_manager.delete_object(&key).await?;
 
-                // Reload
-                let objects = s3_manager.list_objects(&prefix).await?;
-                let panel = app.get_active_panel();
-                panel
-                    .list_model
-                    .set_items(crate::app::converters::s3_objects_to_items(objects));
+                // Start background task to reload
+                crate::app::navigation::start_background_list_objects(
+                    app,
+                    profile.clone(),
+                    bucket.clone(),
+                    prefix.clone(),
+                );
 
                 app.show_success(&format!("Deleted: {}", app.delete_confirmation.name));
             }
@@ -164,27 +172,30 @@ pub async fn create_folder(app: &mut App, folder_name: String) -> Result<()> {
     let panel_type = app.get_active_panel().panel_type.clone();
 
     match panel_type {
-        PanelType::S3Browser { prefix, .. } => {
-            let has_s3_manager = app.get_active_panel().s3_manager.is_some();
+        PanelType::S3Browser {
+            profile,
+            bucket,
+            prefix,
+        } => {
+            // Get s3_manager first
+            let s3_manager = app.get_active_panel().s3_manager.clone();
 
-            if has_s3_manager {
+            if let Some(s3_manager) = s3_manager {
                 let folder_key = if prefix.is_empty() {
                     format!("{folder_name}/")
                 } else {
                     format!("{prefix}{folder_name}/")
                 };
 
-                let panel = app.get_active_panel();
-                if let Some(s3_manager) = &panel.s3_manager {
-                    s3_manager.upload_empty_folder(&folder_key).await?;
+                s3_manager.upload_empty_folder(&folder_key).await?;
 
-                    let objects = s3_manager.list_objects(&prefix).await?;
-
-                    let panel = app.get_active_panel();
-                    panel
-                        .list_model
-                        .set_items(crate::app::converters::s3_objects_to_items(objects));
-                }
+                // Start background task to reload
+                crate::app::navigation::start_background_list_objects(
+                    app,
+                    profile.clone(),
+                    bucket.clone(),
+                    prefix.clone(),
+                );
             }
         }
         PanelType::LocalFilesystem { path } => {
@@ -212,8 +223,15 @@ pub async fn rename_file(app: &mut App, old_path: String, new_path: String) -> R
     let panel_type = app.get_active_panel().panel_type.clone();
 
     match panel_type {
-        PanelType::S3Browser { prefix, .. } => {
-            if let Some(s3_manager) = &app.get_active_panel().s3_manager {
+        PanelType::S3Browser {
+            profile,
+            bucket,
+            prefix,
+        } => {
+            // Get s3_manager first
+            let s3_manager = app.get_active_panel().s3_manager.clone();
+
+            if let Some(s3_manager) = s3_manager {
                 // Extract S3 keys from paths (remove s3://bucket/ prefix)
                 let old_key = extract_s3_key(&old_path);
                 let new_key = extract_s3_key(&new_path);
@@ -221,11 +239,13 @@ pub async fn rename_file(app: &mut App, old_path: String, new_path: String) -> R
                 s3_manager.copy_object(&old_key, &new_key).await?;
                 s3_manager.delete_object(&old_key).await?;
 
-                let objects = s3_manager.list_objects(&prefix).await?;
-                let panel = app.get_active_panel();
-                panel
-                    .list_model
-                    .set_items(crate::app::converters::s3_objects_to_items(objects));
+                // Start background task to reload
+                crate::app::navigation::start_background_list_objects(
+                    app,
+                    profile.clone(),
+                    bucket.clone(),
+                    prefix.clone(),
+                );
 
                 app.show_success("File renamed successfully");
             }

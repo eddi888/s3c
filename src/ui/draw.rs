@@ -1,6 +1,6 @@
 use super::dialogs::{
-    draw_config_form, draw_delete_confirmation, draw_error_overlay, draw_input_dialog,
-    draw_profile_config_form, draw_sort_dialog, draw_success_overlay,
+    draw_config_form, draw_delete_confirmation, draw_error_overlay, draw_info_overlay,
+    draw_input_dialog, draw_profile_config_form, draw_sort_dialog, draw_success_overlay,
 };
 use super::panels::draw_panel;
 use super::preview::{draw_file_content_preview, draw_image_preview};
@@ -30,12 +30,15 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Screen::Help => draw_help(f, app),
     }
 
-    // Render error/success overlays on top of any screen
+    // Render error/success/info overlays on top of any screen
     if !app.error_message.is_empty() {
         draw_error_overlay(f, app);
     }
     if !app.success_message.is_empty() {
         draw_success_overlay(f, app);
+    }
+    if !app.info_message.is_empty() {
+        draw_info_overlay(f, app);
     }
 }
 

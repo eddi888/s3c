@@ -535,3 +535,25 @@ pub fn draw_success_overlay(f: &mut Frame, app: &App) {
 
     f.render_widget(success, area);
 }
+
+pub fn draw_info_overlay(f: &mut Frame, app: &App) {
+    let area = centered_rect(60, 20, f.area());
+
+    f.render_widget(ratatui::widgets::Clear, area);
+
+    let info = Paragraph::new(app.info_message.as_str())
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("ℹ Info")
+                .style(Style::default().bg(Color::Black)),
+        )
+        .wrap(Wrap { trim: false });
+
+    f.render_widget(info, area);
+}
