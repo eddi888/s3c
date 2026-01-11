@@ -14,5 +14,8 @@ pub use app::{ActivePanel, App, InputMode, Panel, PanelType, Screen};
 pub use handlers::key_to_message;
 pub use menu::{get_advanced_menu, get_menu_items, MenuItem};
 pub use message::Message;
-pub use operations::{process_background_tasks, process_setup_script, run_app, OperationStatus};
+pub use operations::{
+    process_background_list_task, process_background_tasks, process_setup_script, run_app,
+    OperationStatus,
+};
 pub use ui::draw;
