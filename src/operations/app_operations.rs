@@ -1,5 +1,5 @@
 use crate::app::{App, PanelType};
-use crate::models::list::{ItemData, ItemType, PanelItem};
+use crate::models::list::{ItemData, ItemType};
 use anyhow::Result;
 
 /// Extract S3 key from path by removing s3://bucket/ prefix
@@ -91,68 +91,84 @@ pub async fn view_file(app: &mut App) -> Result<()> {
         PanelType::S3Browser { bucket, .. } => {
             let item = app.get_active_panel().list_model.get_item(selected_index);
 
-            if let Some(PanelItem {
-                item_type: ItemType::File,
-                data: ItemData::S3Object(s3_obj),
-                name,
-                ..
-            }) = item
-            {
-                let key = s3_obj.key.clone();
-                let filename = name.clone();
-                let bucket = bucket.clone();
+            if let Some(item) = item {
+                match item.item_type {
+                    ItemType::File => {
+                        if let ItemData::S3Object(s3_obj) = &item.data {
+                            let key = s3_obj.key.clone();
+                            let filename = item.name.clone();
+                            let bucket = bucket.clone();
 
-                // Check if image
-                if is_image_file(&filename) {
-                    let source = PreviewSource::S3Object { key, bucket };
-                    show_image_preview(app, source).await?;
-                } else {
-                    // Text file - use new preview system
-                    if let Some(s3_manager) = &app.get_active_panel().s3_manager {
-                        match crate::operations::preview::file_loader::load_s3_file_content(
-                            &key, &bucket, s3_manager,
-                        )
-                        .await
-                        {
-                            Ok(preview) => {
-                                app.file_content_preview = Some(preview);
-                                app.prev_screen = Some(app.screen.clone());
-                                app.screen = crate::app::Screen::FileContentPreview;
-                            }
-                            Err(e) => {
-                                app.show_error(&format!("Cannot preview file: {e}"));
+                            // Check if image
+                            if is_image_file(&filename) {
+                                let source = PreviewSource::S3Object { key, bucket };
+                                show_image_preview(app, source).await?;
+                            } else {
+                                // Text file - use new preview system
+                                if let Some(s3_manager) = &app.get_active_panel().s3_manager {
+                                    match crate::operations::preview::file_loader::load_s3_file_content(
+                                        &key, &bucket, s3_manager,
+                                    )
+                                    .await
+                                    {
+                                        Ok(preview) => {
+                                            app.file_content_preview = Some(preview);
+                                            app.prev_screen = Some(app.screen.clone());
+                                            app.screen = crate::app::Screen::FileContentPreview;
+                                        }
+                                        Err(e) => {
+                                            app.show_error(&format!("Cannot preview file: {e}"));
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
+                    ItemType::Directory => {
+                        app.show_info("Cannot preview directories");
+                    }
+                    ItemType::ParentDir => {
+                        app.show_info("Cannot preview parent directory");
+                    }
                 }
+            } else {
+                app.show_info("No item selected");
             }
         }
         PanelType::LocalFilesystem { .. } => {
             let item = app.get_active_panel().list_model.get_item(selected_index);
 
-            if let Some(PanelItem {
-                item_type: ItemType::File,
-                data:
-                    ItemData::LocalFile {
-                        path: file_path, ..
-                    },
-                name,
-                ..
-            }) = item
-            {
-                let path = file_path.clone();
-                let filename = name.clone();
-                let path_str = path.display().to_string();
+            if let Some(item) = item {
+                match item.item_type {
+                    ItemType::File => {
+                        if let ItemData::LocalFile {
+                            path: file_path, ..
+                        } = &item.data
+                        {
+                            let path = file_path.clone();
+                            let filename = item.name.clone();
+                            let path_str = path.display().to_string();
 
-                // Check if image
-                if is_image_file(&filename) {
-                    let source = PreviewSource::LocalFile { path: path_str };
-                    show_image_preview(app, source).await?;
-                } else {
-                    // Text file
-                    let source = PreviewSource::LocalFile { path: path_str };
-                    show_file_content_preview(app, source).await?;
+                            // Check if image
+                            if is_image_file(&filename) {
+                                let source = PreviewSource::LocalFile { path: path_str };
+                                show_image_preview(app, source).await?;
+                            } else {
+                                // Text file
+                                let source = PreviewSource::LocalFile { path: path_str };
+                                show_file_content_preview(app, source).await?;
+                            }
+                        }
+                    }
+                    ItemType::Directory => {
+                        app.show_info("Cannot preview directories");
+                    }
+                    ItemType::ParentDir => {
+                        app.show_info("Cannot preview parent directory");
+                    }
                 }
+            } else {
+                app.show_info("No item selected");
             }
         }
         _ => {

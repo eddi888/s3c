@@ -5,8 +5,13 @@ use crossterm::event::{KeyCode, KeyModifiers};
 
 /// Converts keyboard input to Message based on current screen/state
 pub fn key_to_message(app: &App, key: KeyCode, modifiers: KeyModifiers) -> Option<Message> {
-    // Handle error/success message dismissal
-    if !app.error_message.is_empty() || !app.success_message.is_empty() {
+    // Handle error/success/info message dismissal
+    // Any key dismisses the message, but the key action happens on next press
+    let has_message = !app.error_message.is_empty()
+        || !app.success_message.is_empty()
+        || !app.info_message.is_empty();
+
+    if has_message {
         return Some(Message::Clear);
     }
 

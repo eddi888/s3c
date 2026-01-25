@@ -211,6 +211,7 @@ pub async fn update(app: &mut App, msg: Message) -> Result<Option<Message>> {
         Message::Clear => {
             app.error_message.clear();
             app.success_message.clear();
+            app.info_message.clear();
             Ok(None)
         }
 
